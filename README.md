@@ -44,10 +44,15 @@ python3 app/server.py --port 18790
 
 ## 使用
 
-1. 打开浏览器访问 `http://localhost:18790`
-2. 添加 Bot 账号（填入 App ID + App Secret）
-3. 配置 Agent → Bot 绑定路由
-4. 点击「重启服务」使配置生效
+```bash
+# 启动服务（局域网可访问）
+python3 app/server.py --port 18790
+
+# 带 Basic Auth 认证（推荐）
+python3 app/server.py --port 18790 --auth admin:123456
+```
+
+然后在局域网内打开 `http://<电脑IP>:18790`，例如 `http://192.168.1.100:18790`。
 
 ---
 

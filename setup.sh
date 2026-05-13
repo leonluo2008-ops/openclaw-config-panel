@@ -37,6 +37,6 @@ pip3 install flask jq 2>/dev/null || true
 
 # 启动服务
 cd "$PANEL_ROOT"
-nohup python3 app/server.py --port $PORT > app/panel.log 2>&1 &
+nohup python3 app/server.py --port $PORT --host 0.0.0.0 > app/panel.log 2>&1 &
 echo "服务已启动: http://localhost:$PORT"
 echo "日志: $PANEL_ROOT/app/panel.log"

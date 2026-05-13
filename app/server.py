@@ -179,8 +179,25 @@ def api_backup():
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=18790)
-    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--host", default="0.0.0.0")  # 局域网其他电脑可访问
+    parser.add_argument("--auth", default="")           # Basic Auth 用户:密码，例 admin:123456
     args = parser.parse_args()
     
+    # Basic Auth 中间件
+    if args.auth:
+        from functools import wraps
+        import base64
+        
+        user, password = args.auth.split(":", 1)
+        
+        @app.before_request
+        def basic_auth():
+            from flask import request
+            auth = request.authorization
+            if not auth or auth.username != user or auth.password != password:
+                return ("需要认证", 401, {"WWW-Authenticate": 'Basic realm="OpenClaw Config Panel"'})
+    
     print(f"Starting OpenClaw Config Panel on http://{args.host}:{args.port}")
+    if args.auth:
+        print(f"Basic Auth: {user}:****")
     app.run(host=args.host, port=args.port, debug=False)
