@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenClaw Config Panel</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🦞 OpenClaw Config Panel</h1>
+            <div class="header-actions">
+                <span id="service-status" class="status-badge">检测中...</span>
+                <button onclick="restartService()" class="btn btn-sm">重启服务</button>
+                <button onclick="backupConfig()" class="btn btn-sm btn-secondary">备份配置</button>
+            </div>
+        </header>
+
+        <main>
+            <!-- Tabs -->
+            <div class="tabs">
+                <button class="tab active" data-tab="bots">Bot 账号管理</button>
+                <button class="tab" data-tab="bindings">Agent 绑定路由</button>
+                <button class="tab" data-tab="info">配置概览</button>
+            </div>
+
+            <!-- Tab: Bots -->
+            <div id="tab-bots" class="tab-content active">
+                <div class="section-header">
+                    <h2>飞书 Bot 账号</h2>
+                    <button onclick="showAddBotModal()" class="btn btn-primary">+ 添加 Bot</button>
+                </div>
+
+                <div id="bot-list" class="card-grid">
+                    <!-- Bot cards rendered here by JS -->
+                </div>
+            </div>
+
+            <!-- Tab: Bindings -->
+            <div id="tab-bindings" class="tab-content">
+                <div class="section-header">
+                    <h2>Agent → Bot 绑定路由</h2>
+                    <button onclick="showAddBindingModal()" class="btn btn-primary">+ 添加绑定</button>
+                </div>
+
+                <div id="binding-list" class="binding-list">
+                    <!-- Bindings rendered here by JS -->
+                </div>
+            </div>
+
+            <!-- Tab: Info -->
+            <div id="tab-info" class="tab-content">
+                <div class="section-header">
+                    <h2>配置概览</h2>
+                </div>
+
+                <div class="info-section">
+                    <h3>模型配置</h3>
+                    <div id="model-info" class="info-box">
+                        <!-- Models rendered here by JS -->
+                    </div>
+                </div>
+
+                <div class="info-section">
+                    <h3>Agent 工作区</h3>
+                    <div id="agent-info" class="info-box">
+                        <!-- Agents rendered here by JS -->
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <footer>
+            <p>OpenClaw Config Panel · 配置文件: ~/.openclaw/openclaw.json</p>
+        </footer>
+    </div>
+
+    <!-- Modal: Add/Edit Bot -->
+    <div id="bot-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="bot-modal-title">添加 Bot</h3>
+                <button onclick="closeBotModal()" class="close">&times;</button>
+            </div>
+            <form id="bot-form">
+                <input type="hidden" id="bot-name-original">
+                <div class="form-group">
+                    <label>Bot 名称（唯一标识）</label>
+                    <input type="text" id="bot-name" placeholder="例如: my-agent-bot" required>
+                </div>
+                <div class="form-group">
+                    <label>App ID</label>
+                    <input type="text" id="bot-appId" placeholder="cli_xxxxxxxxxxxxxx" required>
+                </div>
+                <div class="form-group">
+                    <label>App Secret</label>
+                    <input type="password" id="bot-appSecret" placeholder="填写后自动保存" required>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>dmPolicy（私聊策略）</label>
+                        <select id="bot-dmPolicy">
+                            <option value="open">open - 任何人可私聊</option>
+                            <option value="pairing">pairing - 需配对码</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>groupPolicy（群聊策略）</label>
+                        <select id="bot-groupPolicy">
+                            <option value="closed">closed - 需明确允许</option>
+                            <option value="open">open - 所有人可用</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>webhookPath</label>
+                    <input type="text" id="bot-webhookPath" value="/feishu/events">
+                </div>
+                <div class="form-actions">
+                    <button type="button" onclick="closeBotModal()" class="btn btn-secondary">取消</button>
+                    <button type="submit" class="btn btn-primary">保存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal: Add Binding -->
+    <div id="binding-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>添加 Agent → Bot 绑定</h3>
+                <button onclick="closeBindingModal()" class="close">&times;</button>
+            </div>
+            <form id="binding-form">
+                <div class="form-group">
+                    <label>Agent ID</label>
+                    <select id="binding-agentId">
+                        <option value="">选择 Agent...</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>绑定到 Bot（accountId）</label>
+                    <select id="binding-accountId">
+                        <option value="">选择 Bot...</option>
+                    </select>
+                </div>
+                <div class="form-actions">
+                    <button type="button" onclick="closeBindingModal()" class="btn btn-secondary">取消</button>
+                    <button type="submit" class="btn btn-primary">保存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Toast notification -->
+    <div id="toast" class="toast"></div>
+
+    <script>
+        // ---- Data from server ----
+        const bots = {{ bots | tojson }};
+        const bindings = {{ bindings | tojson }};
+        const agents = {{ agents | tojson }};
+        const models = {{ models | tojson }};
+        const serviceOk = {{ 'true' if service_ok else 'false' }};
+
+        // ---- Init ----
+        document.addEventListener('DOMContentLoaded', () => {
+            renderServiceStatus();
+            renderBots();
+            renderBindings();
+            renderInfo();
+            initTabs();
+            initBotForm();
+            initBindingForm();
+        });
+
+        // ---- Service Status ----
+        function renderServiceStatus() {
+            const el = document.getElementById('service-status');
+            if (serviceOk) {
+                el.textContent = '● 运行中';
+                el.className = 'status-badge status-ok';
+            } else {
+                el.textContent = '○ 已停止';
+                el.className = 'status-badge status-error';
+            }
+        }
+
+        async function restartService() {
+            showToast('正在重启服务...', 'info');
+            try {
+                const res = await fetch('/api/service/restart', { method: 'POST' });
+                const data = await res.json();
+                if (data.success) {
+                    showToast('服务已重启', 'success');
+                    setTimeout(() => location.reload(), 1500);
+                } else {
+                    showToast('重启失败: ' + data.error, 'error');
+                }
+            } catch (e) {
+                showToast('请求失败: ' + e.message, 'error');
+            }
+        }
+
+        async function backupConfig() {
+            try {
+                const res = await fetch('/api/backup', { method: 'POST' });
+                const data = await res.json();
+                if (data.success) {
+                    showToast('备份已保存', 'success');
+                }
+            } catch (e) {
+                showToast('备份失败: ' + e.message, 'error');
+            }
+        }
+
+        // ---- Bot List ----
+        function renderBots() {
+            const container = document.getElementById('bot-list');
+            if (bots.length === 0) {
+                container.innerHTML = '<p class="empty-state">暂无 Bot 账号，点击上方"添加 Bot"开始配置</p>';
+                return;
+            }
+
+            container.innerHTML = bots.map(bot => `
+                <div class="card ${bot.enabled ? '' : 'card-disabled'}">
+                    <div class="card-header">
+                        <h3>${escapeHtml(bot.name)}</h3>
+                        <span class="badge ${bot.enabled ? 'badge-ok' : 'badge-disabled'}">${bot.enabled ? '启用' : '禁用'}</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="info-row">
+                            <span class="label">App ID:</span>
+                            <code>${escapeHtml(bot.appId)}</code>
+                        </div>
+                        <div class="info-row">
+                            <span class="label">Secret:</span>
+                            <code>${escapeHtml(bot.appSecret_masked)}</code>
+                        </div>
+                        <div class="info-row">
+                            <span class="label">dmPolicy:</span>
+                            <span>${bot.dmPolicy}</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="label">groupPolicy:</span>
+                            <span>${bot.groupPolicy}</span>
+                        </div>
+                    </div>
+                    <div class="card-actions">
+                        <button onclick="editBot('${escapeJs(bot.name)}')" class="btn btn-sm">编辑</button>
+                        <button onclick="toggleBot('${escapeJs(bot.name)}', ${!bot.enabled})" class="btn btn-sm ${bot.enabled ? 'btn-warning' : 'btn-success'}">
+                            ${bot.enabled ? '禁用' : '启用'}
+                        </button>
+                        <button onclick="deleteBot('${escapeJs(bot.name)}')" class="btn btn-sm btn-danger">删除</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // ---- Bot Modal ----
+        function showAddBotModal() {
+            document.getElementById('bot-modal-title').textContent = '添加 Bot';
+            document.getElementById('bot-form').reset();
+            document.getElementById('bot-name-original').value = '';
+            document.getElementById('bot-appSecret').required = true;
+            document.getElementById('bot-modal').style.display = 'flex';
+        }
+
+        function editBot(name) {
+            const bot = bots.find(b => b.name === name);
+            if (!bot) return;
+
+            document.getElementById('bot-modal-title').textContent = '编辑 Bot';
+            document.getElementById('bot-name-original').value = name;
+            document.getElementById('bot-name').value = name;
+            document.getElementById('bot-appId').value = bot.appId;
+            document.getElementById('bot-appSecret').value = '';
+            document.getElementById('bot-appSecret').required = false;
+            document.getElementById('bot-dmPolicy').value = bot.dmPolicy;
+            document.getElementById('bot-groupPolicy').value = bot.groupPolicy;
+            document.getElementById('bot-webhookPath').value = bot.webhookPath || '/feishu/events';
+            document.getElementById('bot-modal').style.display = 'flex';
+        }
+
+        function closeBotModal() {
+            document.getElementById('bot-modal').style.display = 'none';
+        }
+
+        function initBotForm() {
+            document.getElementById('bot-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                
+                const originalName = document.getElementById('bot-name-original').value;
+                const name = document.getElementById('bot-name').value.trim();
+                const appId = document.getElementById('bot-appId').value.trim();
+                const appSecret = document.getElementById('bot-appSecret').value.trim();
+                const dmPolicy = document.getElementById('bot-dmPolicy').value;
+                const groupPolicy = document.getElementById('bot-groupPolicy').value;
+                const webhookPath = document.getElementById('bot-webhookPath').value.trim();
+
+                if (!name || !appId) {
+                    showToast('名称和 App ID 不能为空', 'error');
+                    return;
+                }
+
+                const isEdit = !!originalName;
+                
+                try {
+                    let res, data;
+
+                    if (isEdit) {
+                        const payload = { appId, dmPolicy, groupPolicy, webhookPath };
+                        if (appSecret) payload.appSecret = appSecret;
+                        res = await fetch(`/api/bots/${originalName}`, {
+                            method: 'PUT',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify(payload)
+                        });
+                    } else {
+                        if (!appSecret) {
+                            showToast('新添加 Bot 需要填写 App Secret', 'error');
+                            return;
+                        }
+                        res = await fetch('/api/bots', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({name, appId, appSecret, dmPolicy, groupPolicy, webhookPath})
+                        });
+                    }
+
+                    data = await res.json();
+                    if (data.success) {
+                        showToast(isEdit ? 'Bot 已更新' : 'Bot 已添加', 'success');
+                        closeBotModal();
+                        setTimeout(() => location.reload(), 800);
+                    } else {
+                        showToast(data.error || '操作失败', 'error');
+                    }
+                } catch (e) {
+                    showToast('请求失败: ' + e.message, 'error');
+                }
+            });
+        }
+
+        async function toggleBot(name, enable) {
+            try {
+                const res = await fetch(`/api/bots/${name}/${enable ? 'enable' : 'disable'}`, { method: 'POST' });
+                const data = await res.json();
+                if (data.success) {
+                    showToast(`Bot 已${enable ? '启用' : '禁用'}`, 'success');
+                    setTimeout(() => location.reload(), 500);
+                } else {
+                    showToast(data.error || '操作失败', 'error');
+                }
+            } catch (e) {
+                showToast('请求失败: ' + e.message, 'error');
+            }
+        }
+
+        async function deleteBot(name) {
+            if (!confirm(`确定删除 Bot "${name}"？此操作不可恢复。`)) return;
+            try {
+                const res = await fetch(`/api/bots/${name}`, { method: 'DELETE' });
+                const data = await res.json();
+                if (data.success) {
+                    showToast('Bot 已删除', 'success');
+                    setTimeout(() => location.reload(), 500);
+                } else {
+                    showToast(data.error || '删除失败', 'error');
+                }
+            } catch (e) {
+                showToast('请求失败: ' + e.message, 'error');
+            }
+        }
+
+        // ---- Bindings ----
+        function renderBindings() {
+            const container = document.getElementById('binding-list');
+            if (bindings.length === 0) {
+                container.innerHTML = '<p class="empty-state">暂无绑定路由，点击上方"添加绑定"创建 Agent → Bot 路由</p>';
+                return;
+            }
+
+            container.innerHTML = `
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>Agent ID</th>
+                            <th>Bot Account ID</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${bindings.map(b => `
+                            <tr>
+                                <td><code>${escapeHtml(b.agentId)}</code></td>
+                                <td><code>${escapeHtml(b.match && b.match.accountId || '')}</code></td>
+                                <td>
+                                    <button onclick="deleteBinding('${escapeJs(b.agentId)}')" class="btn btn-sm btn-danger">移除</button>
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+        }
+
+        function showAddBindingModal() {
+            // Populate agent dropdown
+            const agentSelect = document.getElementById('binding-agentId');
+            agentSelect.innerHTML = '<option value="">选择 Agent...</option>';
+            agents.list.forEach(a => {
+                agentSelect.innerHTML += `<option value="${escapeHtml(a.id)}">${escapeHtml(a.name || a.id)}</option>`;
+            });
+
+            // Populate bot dropdown
+            const botSelect = document.getElementById('binding-accountId');
+            botSelect.innerHTML = '<option value="">选择 Bot...</option>';
+            bots.forEach(b => {
+                botSelect.innerHTML += `<option value="${escapeHtml(b.name)}">${escapeHtml(b.name)} (${escapeHtml(b.appId)})</option>`;
+            });
+
+            document.getElementById('binding-modal').style.display = 'flex';
+        }
+
+        function closeBindingModal() {
+            document.getElementById('binding-modal').style.display = 'none';
+        }
+
+        function initBindingForm() {
+            document.getElementById('binding-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const agentId = document.getElementById('binding-agentId').value.trim();
+                const accountId = document.getElementById('binding-accountId').value.trim();
+
+                if (!agentId || !accountId) {
+                    showToast('请选择 Agent 和 Bot', 'error');
+                    return;
+                }
+
+                try {
+                    const res = await fetch('/api/bindings', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({agentId, accountId})
+                    });
+                    const data = await res.json();
+                    if (data.success) {
+                        showToast('绑定已保存', 'success');
+                        closeBindingModal();
+                        setTimeout(() => location.reload(), 800);
+                    } else {
+                        showToast(data.error || '操作失败', 'error');
+                    }
+                } catch (e) {
+                    showToast('请求失败: ' + e.message, 'error');
+                }
+            });
+        }
+
+        async function deleteBinding(agentId) {
+            if (!confirm(`确定移除 Agent "${agentId}" 的绑定？`)) return;
+            try {
+                const res = await fetch(`/api/bindings/${agentId}`, { method: 'DELETE' });
+                const data = await res.json();
+                if (data.success) {
+                    showToast('绑定已移除', 'success');
+                    setTimeout(() => location.reload(), 500);
+                } else {
+                    showToast(data.error || '操作失败', 'error');
+                }
+            } catch (e) {
+                showToast('请求失败: ' + e.message, 'error');
+            }
+        }
+
+        // ---- Info Tab ----
+        function renderInfo() {
+            // Models
+            const modelEl = document.getElementById('model-info');
+            if (models && Object.keys(models).length > 0) {
+                const modelHtml = Object.entries(models).map(([name, conf]) => `
+                    <div class="model-item">
+                        <strong>${escapeHtml(name)}</strong>
+                        ${conf.provider ? ` → ${escapeHtml(conf.provider)}` : ''}
+                    </div>
+                `).join('');
+                modelEl.innerHTML = modelHtml;
+            } else {
+                modelEl.innerHTML = '<p class="empty-state">未找到模型配置</p>';
+            }
+
+            // Agents
+            const agentEl = document.getElementById('agent-info');
+            const defaultWs = agents.defaults && agents.defaults.workspace;
+            agentEl.innerHTML = `
+                <p><strong>默认工作区:</strong> <code>${escapeHtml(defaultWs || '未配置')}</code></p>
+                <p><strong>Agent 数量:</strong> ${agents.list ? agents.list.length : 0}</p>
+                <details>
+                    <summary>Agent 列表</summary>
+                    <ul>
+                        ${(agents.list || []).map(a => `
+                            <li><code>${escapeHtml(a.id)}</code> → ${escapeHtml(a.workspace || '未配置')}</li>
+                        `).join('')}
+                    </ul>
+                </details>
+            `;
+        }
+
+        // ---- Tabs ----
+        function initTabs() {
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.addEventListener('click', () => {
+                    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                    tab.classList.add('active');
+                    document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+                });
+            });
+        }
+
+        // ---- Utils ----
+        function escapeHtml(str) {
+            if (!str) return '';
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
+        function escapeJs(str) {
+            if (!str) return '';
+            return str.replace(/'/g, "\\'").replace(/"/g, '\\"');
+        }
+
+        function showToast(message, type) {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.className = 'toast toast-' + type;
+            toast.style.display = 'block';
+            setTimeout(() => { toast.style.display = 'none'; }, 3000);
+        }
+    </script>
+</body>
+</html>
