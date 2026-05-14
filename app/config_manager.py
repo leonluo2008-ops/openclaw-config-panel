@@ -493,9 +493,148 @@ def save_core_file(agent_id, filename, content):
 
 
 def get_models():
-    """获取模型配置"""
+    """获取完整模型配置（用于配置概览展示）"""
     config = get_openclaw_config()
     return config.get("models", {})
+
+
+def get_model_config():
+    """获取模型配置的完整视图（providers + allowlist + default）"""
+    config = get_openclaw_config()
+    models_root = config.get("models", {})
+    defaults = config.get("agents", {}).get("defaults", {})
+
+    # 构建提供商列表
+    providers = []
+    for pid, pconf in models_root.get("providers", {}).items():
+        provider_models = []
+        for m in pconf.get("models", []):
+            full_id = f"{pid}/{m.get('id', '')}"
+            provider_models.append({
+                "id": m.get("id", ""),
+                "fullId": full_id,
+                "name": m.get("name", m.get("id", "")),
+                "reasoning": m.get("reasoning", False),
+                "input": m.get("input", ["text"]),
+                "cost": m.get("cost", {}),
+                "contextWindow": m.get("contextWindow"),
+                "maxTokens": m.get("maxTokens"),
+            })
+        providers.append({
+            "id": pid,
+            "baseUrl": pconf.get("baseUrl", ""),
+            "api": pconf.get("api", ""),
+            "models": provider_models,
+        })
+
+    # 构建 allowlist
+    allowlist = []
+    for model_id, mconf in defaults.get("models", {}).items():
+        # 从 providers 找模型名称
+        model_name = ""
+        for p in providers:
+            for m in p["models"]:
+                if m["fullId"] == model_id:
+                    model_name = m["name"]
+                    break
+        allowlist.append({
+            "id": model_id,
+            "name": model_name,
+            "alias": mconf.get("alias", ""),
+        })
+
+    # 默认模型
+    default_model = defaults.get("model", {}).get("primary", "")
+
+    # 每个 agent 的模型
+    agent_models = []
+    agents_list = config.get("agents", {}).get("list", [])
+    for a in agents_list:
+        aid = a.get("id", a.get("name", ""))
+        am = a.get("model", {}).get("primary", "") if isinstance(a.get("model"), dict) else ""
+        if am:
+            agent_models.append({"agentId": aid, "model": am})
+
+    return {
+        "defaultModel": default_model,
+        "allowlist": allowlist,
+        "providers": providers,
+        "agentModels": agent_models,
+        "mode": models_root.get("mode", "merge"),
+    }
+
+
+def set_default_model(model_id):
+    """设置默认模型"""
+    config = get_openclaw_config()
+    if "agents" not in config:
+        config["agents"] = {}
+    if "defaults" not in config["agents"]:
+        config["agents"]["defaults"] = {}
+    if "model" not in config["agents"]["defaults"]:
+        config["agents"]["defaults"]["model"] = {}
+    config["agents"]["defaults"]["model"]["primary"] = model_id
+    save_openclaw_config(config)
+    return True
+
+
+def set_model_alias(model_id, alias):
+    """设置模型别名"""
+    config = get_openclaw_config()
+    models_map = config.setdefault("agents", {}).setdefault("defaults", {}).setdefault("models", {})
+    if model_id not in models_map:
+        models_map[model_id] = {}
+    if alias:
+        models_map[model_id]["alias"] = alias
+    elif "alias" in models_map[model_id]:
+        del models_map[model_id]["alias"]
+    save_openclaw_config(config)
+    return True
+
+
+def add_to_allowlist(model_id, alias=""):
+    """添加模型到 allowlist"""
+    config = get_openclaw_config()
+    models_map = config.setdefault("agents", {}).setdefault("defaults", {}).setdefault("models", {})
+    entry = {}
+    if alias:
+        entry["alias"] = alias
+    models_map[model_id] = entry
+    save_openclaw_config(config)
+    return True
+
+
+def remove_from_allowlist(model_id):
+    """从 allowlist 移除模型"""
+    config = get_openclaw_config()
+    models_map = config.get("agents", {}).get("defaults", {}).get("models", {})
+    if model_id not in models_map:
+        raise ValueError(f"模型 '{model_id}' 不在 allowlist 中")
+    # 不允许移除当前默认模型
+    default_model = config.get("agents", {}).get("defaults", {}).get("model", {}).get("primary", "")
+    if model_id == default_model:
+        raise ValueError("不能移除当前默认模型，请先切换默认模型")
+    del models_map[model_id]
+    save_openclaw_config(config)
+    return True
+
+
+def set_agent_model(agent_id, model_id):
+    """设置 agent 的模型"""
+    if agent_id == "main":
+        return set_default_model(model_id)
+    config = get_openclaw_config()
+    agents_list = config.get("agents", {}).get("list", [])
+    found = False
+    for a in agents_list:
+        if a.get("id", a.get("name", "")) == agent_id:
+            a["model"] = {"primary": model_id}
+            found = True
+            break
+    if not found:
+        raise ValueError(f"Agent '{agent_id}' 不存在")
+    save_openclaw_config(config)
+    return True
 
 
 def mask_secret(secret):

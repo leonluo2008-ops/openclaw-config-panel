@@ -23,7 +23,7 @@
                 <button class="tab" data-tab="agents">Agent 管理</button>
                 <button class="tab active" data-tab="bots">Bot 账号管理</button>
                 <button class="tab" data-tab="bindings">Agent 绑定路由</button>
-                <button class="tab" data-tab="info">配置概览</button>
+                <button class="tab" data-tab="info">模型配置</button>
             </div>
 
             <!-- Tab: Agents -->
@@ -62,23 +62,49 @@
                 </div>
             </div>
 
-            <!-- Tab: Info -->
+            <!-- Tab: Info (模型配置) -->
             <div id="tab-info" class="tab-content">
                 <div class="section-header">
-                    <h2>配置概览</h2>
+                    <h2>模型配置</h2>
                 </div>
 
+                <!-- 默认模型 -->
                 <div class="info-section">
-                    <h3>模型配置</h3>
-                    <div id="model-info" class="info-box">
-                        <!-- Models rendered here by JS -->
+                    <h3>默认模型</h3>
+                    <div class="default-model-row">
+                        <span>当前默认：</span>
+                        <code id="current-default-model">加载中...</code>
+                        <select id="default-model-select" class="inline-select"></select>
+                        <button onclick="setDefaultModel()" class="btn btn-sm btn-primary">切换</button>
                     </div>
                 </div>
 
+                <!-- 模型 Allowlist -->
                 <div class="info-section">
-                    <h3>Agent 工作区</h3>
-                    <div id="agent-info" class="info-box">
-                        <!-- Agents rendered here by JS -->
+                    <div class="section-header" style="margin-bottom:0.5rem">
+                        <h3>模型白名单</h3>
+                        <button onclick="showAddModelModal()" class="btn btn-sm btn-primary">+ 添加模型</button>
+                    </div>
+                    <p class="form-hint" style="margin-bottom:0.75rem">白名单中的模型会出现在 /model 切换菜单中</p>
+                    <div id="allowlist-container" class="info-box">
+                        <!-- rendered by JS -->
+                    </div>
+                </div>
+
+                <!-- Agent 模型覆盖 -->
+                <div class="info-section">
+                    <h3>Agent 模型配置</h3>
+                    <p class="form-hint" style="margin-bottom:0.75rem">每个 Agent 可以使用不同的模型</p>
+                    <div id="agent-models-container" class="info-box">
+                        <!-- rendered by JS -->
+                    </div>
+                </div>
+
+                <!-- 提供商信息 -->
+                <div class="info-section">
+                    <h3>模型提供商</h3>
+                    <div id="providers-container">
+                        <!-- rendered by JS -->
                     </div>
                 </div>
             </div>
@@ -203,6 +229,38 @@
         </div>
     </div>
 
+    <!-- Modal: Add Model to Allowlist -->
+    <div id="add-model-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>添加模型到白名单</h3>
+                <button onclick="closeAddModelModal()" class="close">&times;</button>
+            </div>
+            <form id="add-model-form">
+                <div class="form-group">
+                    <label>从提供商选择</label>
+                    <select id="add-model-provider" onchange="onProviderSelect()">
+                        <option value="">选择提供商...</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>模型</label>
+                    <select id="add-model-model">
+                        <option value="">先选择提供商</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>别名（可选，用于 /model 快捷切换）</label>
+                    <input type="text" id="add-model-alias" placeholder="例如: GLM">
+                </div>
+                <div class="form-actions">
+                    <button type="button" onclick="closeAddModelModal()" class="btn btn-secondary">取消</button>
+                    <button type="submit" class="btn btn-primary">添加</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <!-- Modal: Add Binding -->
     <div id="binding-modal" class="modal">
         <div class="modal-content">
@@ -242,17 +300,22 @@
         const models = {{ models | tojson }};
         const serviceOk = {{ 'true' if service_ok else 'false' }};
 
+        // 模型配置（异步加载）
+        let modelConfig = null;
+
         // ---- Init ----
         document.addEventListener('DOMContentLoaded', () => {
             renderServiceStatus();
             renderAgents();
             renderBots();
             renderBindings();
-            renderInfo();
             initTabs();
             initBotForm();
             initAgentForm();
             initBindingForm();
+            initAddModelForm();
+            // 首次显示配置概览 tab 时加载模型数据
+            loadModelConfig();
         });
 
         // ---- Service Status ----
@@ -741,38 +804,222 @@
             }
         }
 
-        // ---- Info Tab ----
-        function renderInfo() {
-            // Models
-            const modelEl = document.getElementById('model-info');
-            if (models && Object.keys(models).length > 0) {
-                const modelHtml = Object.entries(models).map(([name, conf]) => `
-                    <div class="model-item">
-                        <strong>${escapeHtml(name)}</strong>
-                        ${conf.provider ? ` → ${escapeHtml(conf.provider)}` : ''}
-                    </div>
-                `).join('');
-                modelEl.innerHTML = modelHtml;
+        // ---- Model Config ----
+        async function loadModelConfig() {
+            try {
+                const res = await fetch('/api/models/config');
+                modelConfig = await res.json();
+                renderModelConfig();
+            } catch (e) {
+                console.error('Failed to load model config:', e);
+            }
+        }
+
+        function renderModelConfig() {
+            if (!modelConfig) return;
+
+            // 默认模型
+            document.getElementById('current-default-model').textContent = modelConfig.defaultModel || '未配置';
+
+            // 默认模型下拉
+            const sel = document.getElementById('default-model-select');
+            sel.innerHTML = '';
+            modelConfig.allowlist.forEach(m => {
+                const label = m.alias ? `${m.alias} (${m.id})` : m.id;
+                sel.innerHTML += `<option value="${escapeHtml(m.id)}" ${m.id === modelConfig.defaultModel ? 'selected' : ''}>${escapeHtml(label)}</option>`;
+            });
+
+            // Allowlist
+            const allowEl = document.getElementById('allowlist-container');
+            if (modelConfig.allowlist.length === 0) {
+                allowEl.innerHTML = '<p class="empty-state">白名单为空</p>';
             } else {
-                modelEl.innerHTML = '<p class="empty-state">未找到模型配置</p>';
+                allowEl.innerHTML = '<table class="table"><thead><tr><th>模型</th><th>别名</th><th>名称</th><th>操作</th></tr></thead><tbody>' +
+                    modelConfig.allowlist.map(m => `
+                        <tr>
+                            <td><code>${escapeHtml(m.id)}</code>${m.id === modelConfig.defaultModel ? ' <span class="badge badge-ok">默认</span>' : ''}</td>
+                            <td><input type="text" class="alias-input" value="${escapeHtml(m.alias || '')}" placeholder="-" data-model="${escapeHtml(m.id)}" onchange="updateAlias('${escapeJs(m.id)}', this.value)"></td>
+                            <td>${escapeHtml(m.name || '-')}</td>
+                            <td>${m.id === modelConfig.defaultModel ? '<span class="text-dim">默认模型</span>' : `<button onclick="removeFromAllowlist('${escapeJs(m.id)}')" class="btn btn-sm btn-danger">移除</button>`}</td>
+                        </tr>
+                    `).join('') +
+                    '</tbody></table>';
             }
 
-            // Agents
-            const agentEl = document.getElementById('agent-info');
-            const defaultWs = agents.defaults && agents.defaults.workspace;
-            agentEl.innerHTML = `
-                <p><strong>默认工作区:</strong> <code>${escapeHtml(defaultWs || '未配置')}</code></p>
-                <p><strong>默认模型:</strong> <code>${escapeHtml(agents.defaults?.model?.primary || '未配置')}</code></p>
-                <p><strong>Agent 数量:</strong> ${agents.list ? agents.list.length : 0}</p>
-                <details>
-                    <summary>Agent 列表</summary>
-                    <ul>
-                        ${(agents.list || []).map(a => `
-                            <li><code>${escapeHtml(a.id)}</code>${a.isDefault ? ' (默认)' : ''} → ${escapeHtml(a.workspace || '使用默认工作区')}</li>
-                        `).join('')}
-                    </ul>
+            // Agent 模型配置
+            const agentEl = document.getElementById('agent-models-container');
+            const allAgents = agents.list || [];
+            agentEl.innerHTML = '<table class="table"><thead><tr><th>Agent</th><th>当前模型</th><th>切换模型</th></tr></thead><tbody>' +
+                allAgents.map(a => {
+                    const currentModel = a.model || modelConfig.defaultModel || '-';
+                    const options = modelConfig.allowlist.map(m => {
+                        const label = m.alias ? `${m.alias} (${m.id})` : m.id;
+                        return `<option value="${escapeHtml(m.id)}" ${m.id === currentModel ? 'selected' : ''}>${escapeHtml(label)}</option>`;
+                    }).join('');
+                    return `<tr>
+                        <td><code>${escapeHtml(a.id)}</code>${a.isDefault ? ' (默认)' : ''}</td>
+                        <td><code>${escapeHtml(currentModel)}</code></td>
+                        <td><select class="inline-select" data-agent="${escapeHtml(a.id)}" onchange="setAgentModel('${escapeJs(a.id)}', this.value)">${options}</select></td>
+                    </tr>`;
+                }).join('') +
+                '</tbody></table>';
+
+            // 提供商信息
+            const provEl = document.getElementById('providers-container');
+            provEl.innerHTML = modelConfig.providers.map(p => `
+                <details class="provider-details">
+                    <summary><strong>${escapeHtml(p.id)}</strong> — ${escapeHtml(p.api)} — ${p.models.length} 个模型</summary>
+                    <div class="info-box" style="margin-top:0.5rem">
+                        <div class="info-row"><span class="label">Base URL:</span> <code>${escapeHtml(p.baseUrl)}</code></div>
+                        <div class="info-row"><span class="label">API:</span> <code>${escapeHtml(p.api)}</code></div>
+                        <table class="table" style="margin-top:0.5rem">
+                            <thead><tr><th>模型 ID</th><th>名称</th><th>上下文</th><th>推理</th><th>输入</th></tr></thead>
+                            <tbody>
+                                ${p.models.map(m => `
+                                    <tr>
+                                        <td><code>${escapeHtml(m.fullId)}</code></td>
+                                        <td>${escapeHtml(m.name)}</td>
+                                        <td>${m.contextWindow ? (m.contextWindow/1000).toFixed(0)+'K' : '-'}</td>
+                                        <td>${m.reasoning ? '✅' : '❌'}</td>
+                                        <td>${m.input.join(', ')}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
                 </details>
-            `;
+            `).join('');
+        }
+
+        async function setDefaultModel() {
+            const sel = document.getElementById('default-model-select');
+            const model = sel.value;
+            if (!model) return;
+            try {
+                const res = await fetch('/api/models/default', {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({model})
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast('默认模型已切换', 'success');
+                    loadModelConfig();
+                } else {
+                    showToast(data.error || '操作失败', 'error');
+                }
+            } catch (e) {
+                showToast('请求失败: ' + e.message, 'error');
+            }
+        }
+
+        async function updateAlias(modelId, alias) {
+            try {
+                const res = await fetch(`/api/models/allowlist/${encodeURIComponent(modelId)}/alias`, {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({alias})
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast('别名已更新', 'success');
+                } else {
+                    showToast(data.error || '操作失败', 'error');
+                }
+            } catch (e) {
+                showToast('请求失败: ' + e.message, 'error');
+            }
+        }
+
+        async function removeFromAllowlist(modelId) {
+            if (!confirm(`确定从白名单移除模型 "${modelId}"？`)) return;
+            try {
+                const res = await fetch(`/api/models/allowlist/${encodeURIComponent(modelId)}`, { method: 'DELETE' });
+                const data = await res.json();
+                if (data.success) {
+                    showToast('已移除', 'success');
+                    loadModelConfig();
+                } else {
+                    showToast(data.error || '操作失败', 'error');
+                }
+            } catch (e) {
+                showToast('请求失败: ' + e.message, 'error');
+            }
+        }
+
+        async function setAgentModel(agentId, model) {
+            try {
+                const res = await fetch(`/api/agents/${agentId}/model`, {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({model})
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast(`${agentId} 模型已切换`, 'success');
+                    loadModelConfig();
+                } else {
+                    showToast(data.error || '操作失败', 'error');
+                }
+            } catch (e) {
+                showToast('请求失败: ' + e.message, 'error');
+            }
+        }
+
+        // Add Model Modal
+        function showAddModelModal() {
+            if (!modelConfig) return;
+            const provSel = document.getElementById('add-model-provider');
+            provSel.innerHTML = '<option value="">选择提供商...</option>';
+            modelConfig.providers.forEach(p => {
+                provSel.innerHTML += `<option value="${escapeHtml(p.id)}">${escapeHtml(p.id)} (${p.models.length} 个模型)</option>`;
+            });
+            document.getElementById('add-model-model').innerHTML = '<option value="">先选择提供商</option>';
+            document.getElementById('add-model-alias').value = '';
+            document.getElementById('add-model-modal').style.display = 'flex';
+        }
+
+        function closeAddModelModal() {
+            document.getElementById('add-model-modal').style.display = 'none';
+        }
+
+        function onProviderSelect() {
+            const pid = document.getElementById('add-model-provider').value;
+            const mSel = document.getElementById('add-model-model');
+            mSel.innerHTML = '<option value="">选择模型...</option>';
+            if (!pid || !modelConfig) return;
+            const provider = modelConfig.providers.find(p => p.id === pid);
+            if (!provider) return;
+            provider.models.forEach(m => {
+                const inList = modelConfig.allowlist.some(a => a.id === m.fullId);
+                mSel.innerHTML += `<option value="${escapeHtml(m.fullId)}" ${inList ? 'disabled' : ''}>${escapeHtml(m.name)} (${escapeHtml(m.id)})${inList ? ' [已添加]' : ''}</option>`;
+            });
+        }
+
+        function initAddModelForm() {
+            document.getElementById('add-model-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const model = document.getElementById('add-model-model').value;
+                const alias = document.getElementById('add-model-alias').value.trim();
+                if (!model) { showToast('请选择模型', 'error'); return; }
+                try {
+                    const res = await fetch('/api/models/allowlist', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({model, alias})
+                    });
+                    const data = await res.json();
+                    if (data.success) {
+                        showToast('模型已添加到白名单', 'success');
+                        closeAddModelModal();
+                        loadModelConfig();
+                    } else {
+                        showToast(data.error || '操作失败', 'error');
+                    }
+                } catch (e) {
+                    showToast('请求失败: ' + e.message, 'error');
+                }
+            });
         }
 
         // ---- Tabs ----

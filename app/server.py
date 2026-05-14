@@ -251,6 +251,82 @@ def api_get_file_template(agent_id, filename):
     return jsonify({"filename": filename, "content": template})
 
 
+# ---- Model Config API ----
+
+@app.route("/api/models/config", methods=["GET"])
+def api_get_model_config():
+    return jsonify(config_manager.get_model_config())
+
+
+@app.route("/api/models/default", methods=["PUT"])
+def api_set_default_model():
+    data = request.json
+    model_id = data.get("model", "").strip()
+    if not model_id:
+        return jsonify({"error": "模型 ID 不能为空"}), 400
+    try:
+        config_manager.backup_current()
+        config_manager.set_default_model(model_id)
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/models/allowlist/<path:model_id>/alias", methods=["PUT"])
+def api_set_model_alias(model_id):
+    data = request.json
+    alias = data.get("alias", "").strip()
+    try:
+        config_manager.backup_current()
+        config_manager.set_model_alias(model_id, alias)
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/models/allowlist", methods=["POST"])
+def api_add_to_allowlist():
+    data = request.json
+    model_id = data.get("model", "").strip()
+    alias = data.get("alias", "").strip()
+    if not model_id:
+        return jsonify({"error": "模型 ID 不能为空"}), 400
+    try:
+        config_manager.backup_current()
+        config_manager.add_to_allowlist(model_id, alias)
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/models/allowlist/<path:model_id>", methods=["DELETE"])
+def api_remove_from_allowlist(model_id):
+    try:
+        config_manager.backup_current()
+        config_manager.remove_from_allowlist(model_id)
+        return jsonify({"success": True})
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/agents/<agent_id>/model", methods=["PUT"])
+def api_set_agent_model(agent_id):
+    data = request.json
+    model_id = data.get("model", "").strip()
+    if not model_id:
+        return jsonify({"error": "模型 ID 不能为空"}), 400
+    try:
+        config_manager.backup_current()
+        config_manager.set_agent_model(agent_id, model_id)
+        return jsonify({"success": True})
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 # ---- Service Control ----
 
 @app.route("/api/service/restart", methods=["POST"])
