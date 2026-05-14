@@ -28,7 +28,7 @@ else
 fi
 
 # 复制 app 到目标目录
-cp -r "$SCRIPT_DIR/app "$PANEL_ROOT/"
+cp -r "$SCRIPT_DIR/app" "$PANEL_ROOT/"
 cp -r "$SCRIPT_DIR/templates "$PANEL_ROOT/"
 cp -r "$SCRIPT_DIR/static "$PANEL_ROOT/"
 

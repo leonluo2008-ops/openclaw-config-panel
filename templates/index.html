@@ -20,9 +20,22 @@
         <main>
             <!-- Tabs -->
             <div class="tabs">
+                <button class="tab" data-tab="agents">Agent 管理</button>
                 <button class="tab active" data-tab="bots">Bot 账号管理</button>
                 <button class="tab" data-tab="bindings">Agent 绑定路由</button>
                 <button class="tab" data-tab="info">配置概览</button>
+            </div>
+
+            <!-- Tab: Agents -->
+            <div id="tab-agents" class="tab-content">
+                <div class="section-header">
+                    <h2>Agent 列表</h2>
+                    <button onclick="showAddAgentModal()" class="btn btn-primary">+ 创建 Agent</button>
+                </div>
+
+                <div id="agent-list" class="card-grid">
+                    <!-- Agent cards rendered here by JS -->
+                </div>
             </div>
 
             <!-- Tab: Bots -->
@@ -125,6 +138,71 @@
         </div>
     </div>
 
+    <!-- Modal: Add/Edit Agent -->
+    <div id="agent-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="agent-modal-title">创建 Agent</h3>
+                <button onclick="closeAgentModal()" class="close">&times;</button>
+            </div>
+            <form id="agent-form">
+                <input type="hidden" id="agent-id-original">
+                <div class="form-group">
+                    <label>Agent ID（唯一标识，创建后不可修改，用于路由绑定和会话管理）</label>
+                    <input type="text" id="agent-id" placeholder="例如: support-bot" required>
+                    <span class="form-hint">只允许英文字母、数字、连字符和下划线</span>
+                </div>
+                <div class="form-group">
+                    <label>显示名称</label>
+                    <input type="text" id="agent-name" placeholder="例如: 客服助手">
+                </div>
+                <div class="form-group">
+                    <label>工作区路径</label>
+                    <div class="input-with-preview">
+                        <input type="text" id="agent-workspace" placeholder="自动生成，也可自定义">
+                        <span id="workspace-preview" class="form-hint">~/.openclaw/agents/&lt;agent-id&gt;/</span>
+                    </div>
+                    <span class="form-hint">留空自动按规则生成：~/.openclaw/agents/&lt;agent-id&gt;/</span>
+                </div>
+                <div class="form-group">
+                    <label>模型</label>
+                    <select id="agent-model">
+                        <option value="">使用默认模型</option>
+                    </select>
+                </div>
+                <div class="form-actions">
+                    <button type="button" onclick="closeAgentModal()" class="btn btn-secondary">取消</button>
+                    <button type="submit" class="btn btn-primary">保存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal: Edit Agent Core Files -->
+    <div id="files-modal" class="modal modal-wide">
+        <div class="modal-content modal-content-wide">
+            <div class="modal-header">
+                <h3 id="files-modal-title">编辑核心文件</h3>
+                <button onclick="closeFilesModal()" class="close">&times;</button>
+            </div>
+            <div class="file-tabs" id="file-tabs">
+                <!-- File tabs rendered by JS -->
+            </div>
+            <div class="file-editor-wrapper">
+                <div class="file-editor-header">
+                    <span id="file-desc" class="file-desc"></span>
+                    <span id="file-status" class="file-status"></span>
+                </div>
+                <textarea id="file-editor" class="file-editor" spellcheck="false" placeholder="文件内容为空，点击此处开始编辑..."></textarea>
+            </div>
+            <div class="form-actions">
+                <button type="button" onclick="closeFilesModal()" class="btn btn-secondary">关闭</button>
+                <button type="button" onclick="loadTemplate()" class="btn btn-secondary">📋 加载模板</button>
+                <button type="button" onclick="saveCurrentFile()" class="btn btn-primary">保存当前文件</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Modal: Add Binding -->
     <div id="binding-modal" class="modal">
         <div class="modal-content">
@@ -167,11 +245,13 @@
         // ---- Init ----
         document.addEventListener('DOMContentLoaded', () => {
             renderServiceStatus();
+            renderAgents();
             renderBots();
             renderBindings();
             renderInfo();
             initTabs();
             initBotForm();
+            initAgentForm();
             initBindingForm();
         });
 
@@ -212,6 +292,192 @@
                 }
             } catch (e) {
                 showToast('备份失败: ' + e.message, 'error');
+            }
+        }
+
+        // ---- Agent List ----
+        function renderAgents() {
+            const container = document.getElementById('agent-list');
+            if (!agents.list || agents.list.length === 0) {
+                container.innerHTML = '<p class="empty-state">暂无 Agent</p>';
+                return;
+            }
+
+            container.innerHTML = agents.list.map(agent => {
+                const isDefault = agent.isDefault;
+                return `
+                <div class="card ${isDefault ? 'card-default' : ''}">
+                    <div class="card-header">
+                        <h3>${escapeHtml(agent.name || agent.id)}</h3>
+                        <div>
+                            <code class="agent-id">${escapeHtml(agent.id)}</code>
+                            ${isDefault ? '<span class="badge badge-ok">默认</span>' : ''}
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="info-row">
+                            <span class="label">ID:</span>
+                            <code>${escapeHtml(agent.id)}</code>
+                        </div>
+                        <div class="info-row">
+                            <span class="label">工作区:</span>
+                            <code>${escapeHtml(agent.workspace || agents.defaults.workspace || '未配置')}</code>
+                        </div>
+                        <div class="info-row">
+                            <span class="label">模型:</span>
+                            <code>${escapeHtml(agent.model || agents.defaults.model?.primary || '未配置')}</code>
+                        </div>
+                    </div>
+                    ${isDefault ? '' : `
+                    <div class="card-actions">
+                        <button onclick="editAgentFiles('${escapeJs(agent.id)}')" class="btn btn-sm btn-primary">编辑核心文件</button>
+                        <button onclick="editAgent('${escapeJs(agent.id)}')" class="btn btn-sm">编辑配置</button>
+                        <button onclick="deleteAgent('${escapeJs(agent.id)}')" class="btn btn-sm btn-danger">删除</button>
+                    </div>`}
+                    ${isDefault ? `
+                    <div class="card-actions">
+                        <button onclick="editAgentFiles('${escapeJs(agent.id)}')" class="btn btn-sm btn-primary">编辑核心文件</button>
+                    </div>` : ''}
+                </div>
+                `;
+            }).join('');
+        }
+
+        // ---- Agent Modal ----
+        function showAddAgentModal() {
+            document.getElementById('agent-modal-title').textContent = '创建 Agent';
+            document.getElementById('agent-form').reset();
+            document.getElementById('agent-id-original').value = '';
+            document.getElementById('agent-id').disabled = false;
+            document.getElementById('agent-id').required = true;
+            document.getElementById('workspace-preview').textContent = '~/.openclaw/agents/<agent-id>/';
+
+            // 填充模型选项
+            populateModelSelect();
+
+            document.getElementById('agent-modal').style.display = 'flex';
+        }
+
+        function editAgent(agentId) {
+            const agent = agents.list.find(a => a.id === agentId);
+            if (!agent || agent.isDefault) return;
+
+            document.getElementById('agent-modal-title').textContent = '编辑 Agent';
+            document.getElementById('agent-id-original').value = agentId;
+            document.getElementById('agent-id').value = agentId;
+            document.getElementById('agent-id').disabled = true;
+            document.getElementById('agent-id').required = false;
+            document.getElementById('agent-name').value = (agent.name && !agent.name.includes('(默认)')) ? agent.name : '';
+            document.getElementById('agent-workspace').value = agent.workspace || '';
+
+            populateModelSelect();
+            const currentModel = agent.model || '';
+            if (currentModel) {
+                const sel = document.getElementById('agent-model');
+                // 检查是否在列表中
+                let found = false;
+                for (let i = 0; i < sel.options.length; i++) {
+                    if (sel.options[i].value === currentModel) { found = true; break; }
+                }
+                if (!found) {
+                    const opt = document.createElement('option');
+                    opt.value = currentModel;
+                    opt.textContent = currentModel;
+                    sel.appendChild(opt);
+                }
+                sel.value = currentModel;
+            }
+
+            document.getElementById('agent-modal').style.display = 'flex';
+        }
+
+        function closeAgentModal() {
+            document.getElementById('agent-modal').style.display = 'none';
+        }
+
+        function populateModelSelect() {
+            const sel = document.getElementById('agent-model');
+            sel.innerHTML = '<option value="">使用默认模型</option>';
+
+            // 从 agents.defaults.models 获取模型列表
+            const modelMap = agents.defaults.models || {};
+            for (const [modelId, conf] of Object.entries(modelMap)) {
+                const label = conf.alias ? `${conf.alias} (${modelId})` : modelId;
+                sel.innerHTML += `<option value="${escapeHtml(modelId)}">${escapeHtml(label)}</option>`;
+            }
+        }
+
+        function initAgentForm() {
+            // Agent ID 输入时实时预览工作区路径
+            document.getElementById('agent-id').addEventListener('input', (e) => {
+                const id = e.target.value.trim();
+                const preview = document.getElementById('workspace-preview');
+                if (id) {
+                    preview.textContent = `~/.openclaw/agents/${id}/`;
+                } else {
+                    preview.textContent = '~/.openclaw/agents/<agent-id>/';
+                }
+            });
+
+            document.getElementById('agent-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+
+                const originalId = document.getElementById('agent-id-original').value;
+                const id = document.getElementById('agent-id').value.trim();
+                const name = document.getElementById('agent-name').value.trim();
+                const workspace = document.getElementById('agent-workspace').value.trim();
+                const model = document.getElementById('agent-model').value;
+
+                const isEdit = !!originalId;
+
+                try {
+                    let res, data;
+                    if (isEdit) {
+                        const payload = {};
+                        if (name) payload.name = name;
+                        if (workspace) payload.workspace = workspace;
+                        if (model) payload.model = { primary: model };
+                        res = await fetch(`/api/agents/${originalId}`, {
+                            method: 'PUT',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify(payload)
+                        });
+                    } else {
+                        if (!id) { showToast('Agent ID 不能为空', 'error'); return; }
+                        res = await fetch('/api/agents', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({id, name: name || undefined, workspace: workspace || undefined, model: model || undefined})
+                        });
+                    }
+
+                    data = await res.json();
+                    if (data.success) {
+                        showToast(isEdit ? 'Agent 已更新' : 'Agent 已创建', 'success');
+                        closeAgentModal();
+                        setTimeout(() => location.reload(), 800);
+                    } else {
+                        showToast(data.error || '操作失败', 'error');
+                    }
+                } catch (e) {
+                    showToast('请求失败: ' + e.message, 'error');
+                }
+            });
+        }
+
+        async function deleteAgent(agentId) {
+            if (!confirm(`确定删除 Agent "${agentId}"？此操作不可恢复。`)) return;
+            try {
+                const res = await fetch(`/api/agents/${agentId}`, { method: 'DELETE' });
+                const data = await res.json();
+                if (data.success) {
+                    showToast('Agent 已删除', 'success');
+                    setTimeout(() => location.reload(), 500);
+                } else {
+                    showToast(data.error || '删除失败', 'error');
+                }
+            } catch (e) {
+                showToast('请求失败: ' + e.message, 'error');
             }
         }
 
@@ -496,12 +762,13 @@
             const defaultWs = agents.defaults && agents.defaults.workspace;
             agentEl.innerHTML = `
                 <p><strong>默认工作区:</strong> <code>${escapeHtml(defaultWs || '未配置')}</code></p>
+                <p><strong>默认模型:</strong> <code>${escapeHtml(agents.defaults?.model?.primary || '未配置')}</code></p>
                 <p><strong>Agent 数量:</strong> ${agents.list ? agents.list.length : 0}</p>
                 <details>
                     <summary>Agent 列表</summary>
                     <ul>
                         ${(agents.list || []).map(a => `
-                            <li><code>${escapeHtml(a.id)}</code> → ${escapeHtml(a.workspace || '未配置')}</li>
+                            <li><code>${escapeHtml(a.id)}</code>${a.isDefault ? ' (默认)' : ''} → ${escapeHtml(a.workspace || '使用默认工作区')}</li>
                         `).join('')}
                     </ul>
                 </details>
@@ -518,6 +785,130 @@
                     document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
                 });
             });
+        }
+
+        // ---- Agent Core Files Editor ----
+        let currentFileAgent = null;
+        let currentFileName = null;
+        let fileData = [];
+        let originalContents = {};
+
+        async function editAgentFiles(agentId) {
+            currentFileAgent = agentId;
+            document.getElementById('files-modal-title').textContent = `编辑核心文件 - ${agentId}`;
+            document.getElementById('file-editor').value = '';
+            document.getElementById('file-desc').textContent = '';
+            document.getElementById('file-status').textContent = '加载中...';
+
+            try {
+                const res = await fetch(`/api/agents/${agentId}/files`);
+                fileData = await res.json();
+
+                if (fileData.error) {
+                    showToast(fileData.error, 'error');
+                    return;
+                }
+
+                // 渲染文件标签
+                const tabsEl = document.getElementById('file-tabs');
+                tabsEl.innerHTML = fileData.map((f, i) => `
+                    <button class="file-tab ${f.exists ? '' : 'file-tab-empty'} ${i === 0 ? 'active' : ''}" 
+                            onclick="switchFileTab(${i})" data-index="${i}">
+                        ${f.exists ? '📄' : '📝'} ${escapeHtml(f.filename)}
+                        ${f.required ? '<span class="file-required">*</span>' : ''}
+                    </button>
+                `).join('');
+
+                // 记住原始内容
+                originalContents = {};
+                fileData.forEach(f => { originalContents[f.filename] = f.content; });
+
+                // 默认选中第一个
+                switchFileTab(0);
+
+            } catch (e) {
+                showToast('加载文件失败: ' + e.message, 'error');
+                return;
+            }
+
+            document.getElementById('files-modal').style.display = 'flex';
+        }
+
+        function switchFileTab(index) {
+            const f = fileData[index];
+            if (!f) return;
+
+            currentFileName = f.filename;
+
+            // 更新标签激活状态
+            document.querySelectorAll('.file-tab').forEach((tab, i) => {
+                tab.classList.toggle('active', i === index);
+            });
+
+            // 更新编辑器
+            document.getElementById('file-editor').value = f.content;
+            document.getElementById('file-desc').textContent = f.desc;
+            document.getElementById('file-status').textContent = f.exists ? '已存在' : '未创建';
+            document.getElementById('file-status').className = 'file-status ' + (f.exists ? 'status-exists' : 'status-new');
+        }
+
+        async function saveCurrentFile() {
+            if (!currentFileAgent || !currentFileName) return;
+
+            const content = document.getElementById('file-editor').value;
+
+            try {
+                const res = await fetch(`/api/agents/${currentFileAgent}/files/${currentFileName}`, {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({content})
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast(`${currentFileName} 已保存`, 'success');
+                    originalContents[currentFileName] = content;
+                    // 更新文件状态
+                    const f = fileData.find(x => x.filename === currentFileName);
+                    if (f) { f.exists = true; f.content = content; }
+                    // 更新标签状态
+                    const tabIndex = fileData.indexOf(f);
+                    document.querySelectorAll('.file-tab')[tabIndex]?.classList.remove('file-tab-empty');
+                    document.getElementById('file-status').textContent = '已存在';
+                    document.getElementById('file-status').className = 'file-status status-exists';
+                } else {
+                    showToast(data.error || '保存失败', 'error');
+                }
+            } catch (e) {
+                showToast('保存失败: ' + e.message, 'error');
+            }
+        }
+
+        async function loadTemplate() {
+            if (!currentFileAgent || !currentFileName) return;
+
+            const editorContent = document.getElementById('file-editor').value.trim();
+            if (editorContent) {
+                if (!confirm('当前文件有内容，加载模板会覆盖。确定？')) return;
+            }
+
+            try {
+                const res = await fetch(`/api/agents/${currentFileAgent}/files/${currentFileName}/template`);
+                const data = await res.json();
+                if (data.content !== undefined) {
+                    document.getElementById('file-editor').value = data.content;
+                    showToast(`已加载 ${currentFileName} 模板`, 'info');
+                } else {
+                    showToast('无可用模板', 'error');
+                }
+            } catch (e) {
+                showToast('加载模板失败: ' + e.message, 'error');
+            }
+        }
+
+        function closeFilesModal() {
+            document.getElementById('files-modal').style.display = 'none';
+            currentFileAgent = null;
+            currentFileName = null;
         }
 
         // ---- Utils ----

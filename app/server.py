@@ -146,6 +146,111 @@ def api_remove_binding(agentId):
         return jsonify({"error": str(e)}), 500
 
 
+# ---- Agent Management API ----
+
+@app.route("/api/agents", methods=["GET"])
+def api_list_agents():
+    return jsonify(config_manager.get_agents())
+
+
+@app.route("/api/agents", methods=["POST"])
+def api_add_agent():
+    data = request.json
+    agent_id = data.get("id", "").strip()
+    name = data.get("name", "").strip()
+    workspace = data.get("workspace", "").strip()
+    model = data.get("model", "").strip()
+    
+    if not agent_id:
+        return jsonify({"error": "Agent ID 不能为空"}), 400
+    
+    # 验证 ID 格式（只允许字母、数字、连字符、下划线）
+    import re
+    if not re.match(r'^[a-zA-Z0-9_-]+$', agent_id):
+        return jsonify({"error": "Agent ID 只允许字母、数字、连字符和下划线"}), 400
+    
+    try:
+        config_manager.backup_current()
+        config_manager.create_agent(agent_id, name=name or None, workspace=workspace or None, model=model or None)
+        return jsonify({"success": True, "id": agent_id})
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/agents/<agent_id>", methods=["PUT"])
+def api_update_agent(agent_id):
+    data = request.json
+    
+    try:
+        config_manager.backup_current()
+        config_manager.update_agent(agent_id, **data)
+        return jsonify({"success": True})
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/agents/<agent_id>", methods=["DELETE"])
+def api_delete_agent(agent_id):
+    try:
+        config_manager.backup_current()
+        config_manager.delete_agent(agent_id)
+        return jsonify({"success": True})
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ---- Agent Core Files API ----
+
+@app.route("/api/agents/<agent_id>/files", methods=["GET"])
+def api_list_agent_files(agent_id):
+    files = config_manager.list_core_files(agent_id)
+    if files is None:
+        return jsonify({"error": "Agent not found"}), 404
+    return jsonify(files)
+
+
+@app.route("/api/agents/<agent_id>/files/<filename>", methods=["GET"])
+def api_get_agent_file(agent_id, filename):
+    content = config_manager.get_core_file(agent_id, filename)
+    if content is None:
+        return jsonify({"error": "File not found or not supported"}), 404
+    return jsonify({"filename": filename, "content": content})
+
+
+@app.route("/api/agents/<agent_id>/files/<filename>", methods=["PUT"])
+def api_save_agent_file(agent_id, filename):
+    data = request.json
+    content = data.get("content", "")
+
+    try:
+        config_manager.backup_current()
+        config_manager.save_core_file(agent_id, filename, content)
+        return jsonify({"success": True, "filename": filename})
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/agents/<agent_id>/files/<filename>/template", methods=["GET"])
+def api_get_file_template(agent_id, filename):
+    config = config_manager.get_openclaw_config()
+    agents_list = config.get("agents", {}).get("list", [])
+    agent_name = None
+    for a in agents_list:
+        if a.get("id", a.get("name", "")) == agent_id:
+            agent_name = a.get("name", "")
+            break
+    template = config_manager.generate_template(filename, agent_id, agent_name)
+    return jsonify({"filename": filename, "content": template})
+
+
 # ---- Service Control ----
 
 @app.route("/api/service/restart", methods=["POST"])
