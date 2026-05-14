@@ -310,7 +310,18 @@
                 <h3 id="agent-skills-modal-title">分配 Skills</h3>
                 <button onclick="closeAgentSkillsModal()" class="close">&times;</button>
             </div>
-            <p class="form-hint" id="agent-skills-hint" style="margin-bottom:1rem"></p>
+            <p class="form-hint" id="agent-skills-hint" style="margin-bottom:0.5rem"></p>
+            <div class="skill-toolbar" style="margin-bottom:0.75rem">
+                <input type="text" id="assign-skill-search" placeholder="搜索 skill..." oninput="filterAssignSkills()" class="skill-search-input">
+                <select id="assign-skill-source" onchange="filterAssignSkills()" class="inline-select">
+                    <option value="all">全部来源</option>
+                    <option value="bundled">内置 (Bundled)</option>
+                    <option value="extension">插件 (Extension)</option>
+                    <option value="user">用户安装</option>
+                </select>
+                <button type="button" onclick="toggleAllAssignSkills(true)" class="btn btn-sm">全选</button>
+                <button type="button" onclick="toggleAllAssignSkills(false)" class="btn btn-sm btn-secondary">全不选</button>
+            </div>
             <div class="skill-assign-grid" id="skill-assign-grid">
                 <!-- rendered by JS -->
             </div>
@@ -1408,16 +1419,45 @@
             document.getElementById('agent-skills-modal-title').textContent = `分配 Skills - ${agentId}`;
             document.getElementById('agent-skills-hint').textContent = '勾选该 Agent 可以使用的 Skills。保存后替换默认配置。';
 
+            // 重置筛选
+            const searchEl = document.getElementById('assign-skill-search');
+            const sourceEl = document.getElementById('assign-skill-source');
+            if (searchEl) searchEl.value = '';
+            if (sourceEl) sourceEl.value = 'all';
+
             const grid = document.getElementById('skill-assign-grid');
-            grid.innerHTML = allSkillsData.skills.filter(s => s.enabled).map(s => `
-                <label class="skill-assign-item">
+            grid.innerHTML = allSkillsData.skills.filter(s => s.enabled).map(s => {
+                const sourceLabel = s.source === 'bundled' ? '内置' : s.source === 'extension' ? '插件' : '用户';
+                return `
+                <label class="skill-assign-item" data-source="${s.source}" data-name="${escapeHtml((s.name || s.id).toLowerCase())}" data-id="${escapeHtml(s.id)}">
                     <input type="checkbox" value="${escapeHtml(s.id)}" ${currentSet.has(s.id) ? 'checked' : ''}>
                     <span>${escapeHtml(s.name || s.id)}</span>
-                    <span class="skill-source source-${s.source}" style="font-size:0.6rem">${s.source === 'bundled' ? '内置' : s.source === 'extension' ? '插件' : '用户'}</span>
-                </label>
-            `).join('');
+                    <span class="skill-source source-${s.source}" style="font-size:0.6rem">${sourceLabel}</span>
+                </label>`;
+            }).join('');
 
             document.getElementById('agent-skills-modal').style.display = 'flex';
+        }
+
+        function filterAssignSkills() {
+            const search = (document.getElementById('assign-skill-search')?.value || '').toLowerCase();
+            const source = document.getElementById('assign-skill-source')?.value || 'all';
+            const items = document.querySelectorAll('#skill-assign-grid .skill-assign-item');
+            items.forEach(item => {
+                const matchSource = source === 'all' || item.dataset.source === source;
+                const matchSearch = !search || item.dataset.name.includes(search) || item.dataset.id.includes(search);
+                item.style.display = (matchSource && matchSearch) ? '' : 'none';
+            });
+        }
+
+        function toggleAllAssignSkills(checked) {
+            // 只操作当前可见的
+            const items = document.querySelectorAll('#skill-assign-grid .skill-assign-item');
+            items.forEach(item => {
+                if (item.style.display !== 'none') {
+                    item.querySelector('input[type=checkbox]').checked = checked;
+                }
+            });
         }
 
         function closeAgentSkillsModal() {
