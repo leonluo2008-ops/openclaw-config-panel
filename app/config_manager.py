@@ -724,16 +724,29 @@ def get_all_skills():
     # 附加状态信息
     result = []
     for sid, s in sorted(all_skills.items()):
-        # 全局启用/禁用
         entry = entries.get(sid, {})
-        s["enabled"] = not entry.get("enabled", True) is False
-        # bundled allowlist
-        if s["source"] == "bundled" and allow_bundled is not None:
-            if sid not in allow_bundled:
-                s["enabled"] = False
-        # 默认可用性
+        # 状态逻辑：
+        # entries 中 enabled:true → 明确启用（绿色）
+        # entries 中 enabled:false → 明确禁用（红色）
+        # entries 中无记录 + allowBundled 未设 → 默认可用（灰色/黄色）
+        # entries 中无记录 + allowBundled 有值且包含 → 允许（黄色）
+        # entries 中无记录 + allowBundled 有值且不包含 → 不允许（红色）
+        has_entry = sid in entries
+        if has_entry:
+            s["enabled"] = entry.get("enabled", True) is not False
+            s["state"] = "enabled" if s["enabled"] else "disabled"
+        else:
+            if allow_bundled is not None:
+                if sid in allow_bundled:
+                    s["enabled"] = True
+                    s["state"] = "allowed"  # 在 allowlist 中但未显式启用
+                else:
+                    s["enabled"] = False
+                    s["state"] = "disabled"
+            else:
+                s["enabled"] = True
+                s["state"] = "available"  # 默认可用，但不是用户主动开启
         s["inDefault"] = default_skills is None or sid in default_skills
-        # agent 分配
         s["agentAssignments"] = {}
         for aid, skills in agent_skills.items():
             s["agentAssignments"][aid] = sid in skills
@@ -785,12 +798,26 @@ def _parse_skill_meta(path):
 
 
 def set_skill_enabled(skill_id, enabled):
-    """启用/禁用 skill"""
+    """启用/禁用 skill。
+    enabled=True → 写入 entries.{skill_id}.enabled: true（明确启用）
+    enabled=False → 写入 entries.{skill_id}.enabled: false（明确禁用）
+    如果 entries 里只有 enabled 字段且为 true，等同于恢复默认，直接删除条目
+    """
     config = get_openclaw_config()
-    entries = config.setdefault("skills", {}).setdefault("entries", {})
-    if skill_id not in entries:
-        entries[skill_id] = {}
-    entries[skill_id]["enabled"] = enabled
+    skills_sec = config.setdefault("skills", {})
+    entries = skills_sec.setdefault("entries", {})
+    if enabled:
+        # 明确启用：写入 enabled:true
+        if skill_id in entries:
+            entries[skill_id]["enabled"] = True
+        else:
+            entries[skill_id] = {"enabled": True}
+    else:
+        # 明确禁用：写入 enabled:false
+        if skill_id in entries:
+            entries[skill_id]["enabled"] = False
+        else:
+            entries[skill_id] = {"enabled": False}
     save_openclaw_config(config)
     return True
 

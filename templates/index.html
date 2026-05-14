@@ -48,8 +48,9 @@
                     </select>
                     <select id="skill-status-filter" onchange="filterSkills()" class="inline-select">
                         <option value="all">全部状态</option>
-                        <option value="enabled">已启用</option>
-                        <option value="disabled">已禁用</option>
+                        <option value="enabled">✅ 已启用</option>
+                        <option value="available">⚡ 可用（未配置）</option>
+                        <option value="disabled">❌ 已禁用</option>
                     </select>
                 </div>
 
@@ -1294,13 +1295,16 @@
             }
 
             container.innerHTML = skills.map(s => {
-                const sourceLabel = {bundled: '内置', extension: '插件', user: '用户'}[s.source] || s.source;
+                const sourceLabel = s.source === 'bundled' ? '内置' : s.source === 'extension' ? '插件' : '用户';
                 const sourceClass = 'source-' + s.source;
+                const stateClass = s.state === 'enabled' ? 'skill-state-enabled' : s.state === 'disabled' ? 'skill-state-disabled' : 'skill-state-available';
+                const stateText = s.state === 'enabled' ? '✅ 已启用' : s.state === 'disabled' ? '❌ 已禁用' : '⚡ 可用';
                 return `
                 <div class="skill-item ${s.enabled ? '' : 'skill-disabled'}">
                     <div class="skill-info">
                         <div class="skill-name">${escapeHtml(s.name)}
                             <span class="skill-source ${sourceClass}">${sourceLabel}</span>
+                            <span class="skill-state-badge ${stateClass}">${stateText}</span>
                         </div>
                         <div class="skill-desc">${escapeHtml(s.description || s.id)}</div>
                     </div>
@@ -1321,8 +1325,7 @@
             return allSkillsData.skills.filter(s => {
                 if (search && !s.name.toLowerCase().includes(search) && !s.id.toLowerCase().includes(search) && !(s.description||'').toLowerCase().includes(search)) return false;
                 if (source !== 'all' && s.source !== source) return false;
-                if (status === 'enabled' && !s.enabled) return false;
-                if (status === 'disabled' && s.enabled) return false;
+                if (status !== 'all' && s.state !== status) return false;
                 return true;
             });
         }
