@@ -644,6 +644,192 @@ def remove_provider(provider_id):
     return True
 
 
+def get_all_skills():
+    """扫描所有 skill 源并返回统一列表"""
+    config = get_openclaw_config()
+    skills_config = config.get("skills", {})
+    entries = skills_config.get("entries", {})
+    allow_bundled = skills_config.get("allowBundled", None)  # None = 全部允许
+    default_skills = config.get("agents", {}).get("defaults", {}).get("skills", None)
+    
+    # 读取每个 agent 的 skills
+    agent_skills = {}
+    for a in config.get("agents", {}).get("list", []):
+        aid = a.get("id", a.get("name", ""))
+        s = a.get("skills", None)
+        if s is not None:
+            agent_skills[aid] = s
+    
+    all_skills = {}
+    
+    # 1. Bundled skills
+    bundled_dir = os.path.join(
+        os.path.dirname(subprocess.run(["which", "openclaw"], capture_output=True, text=True).stdout.strip()),
+        "..", "lib", "node_modules", "openclaw", "skills"
+    ) if os.path.exists("/usr/local/bin/openclaw") else "/home/luo/.npm-global/lib/node_modules/openclaw/skills"
+    if os.path.isdir(bundled_dir):
+        for d in sorted(os.listdir(bundled_dir)):
+            sm = os.path.join(bundled_dir, d, "SKILL.md")
+            if os.path.isfile(sm):
+                name, desc = _parse_skill_meta(sm)
+                all_skills[d] = {
+                    "id": d,
+                    "name": name or d,
+                    "description": desc or "",
+                    "source": "bundled",
+                }
+    
+    # 2. Extension skills
+    ext_base = "/home/luo/.npm-global/lib/node_modules/openclaw/dist/extensions"
+    # 尝试动态解析
+    try:
+        r = subprocess.run(["which", "openclaw"], capture_output=True, text=True)
+        if r.returncode == 0:
+            ext_base = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.dirname(r.stdout.strip()))),
+                "lib", "node_modules", "openclaw", "dist", "extensions"
+            )
+    except:
+        pass
+    if os.path.isdir(ext_base):
+        for edir in sorted(os.listdir(ext_base)):
+            skills_dir = os.path.join(ext_base, edir, "skills")
+            if not os.path.isdir(skills_dir):
+                continue
+            for sd in sorted(os.listdir(skills_dir)):
+                sm = os.path.join(skills_dir, sd, "SKILL.md")
+                if os.path.isfile(sm) and sd not in all_skills:
+                    name, desc = _parse_skill_meta(sm)
+                    all_skills[sd] = {
+                        "id": sd,
+                        "name": name or sd,
+                        "description": desc or "",
+                        "source": "extension",
+                    }
+    
+    # 3. User skills
+    user_dir = os.path.expanduser("~/.openclaw/plugin-skills")
+    if os.path.isdir(user_dir):
+        for d in sorted(os.listdir(user_dir)):
+            sm = os.path.join(user_dir, d, "SKILL.md")
+            if os.path.isfile(sm) and d not in all_skills:
+                name, desc = _parse_skill_meta(sm)
+                all_skills[d] = {
+                    "id": d,
+                    "name": name or d,
+                    "description": desc or "",
+                    "source": "user",
+                }
+    
+    # 附加状态信息
+    result = []
+    for sid, s in sorted(all_skills.items()):
+        # 全局启用/禁用
+        entry = entries.get(sid, {})
+        s["enabled"] = not entry.get("enabled", True) is False
+        # bundled allowlist
+        if s["source"] == "bundled" and allow_bundled is not None:
+            if sid not in allow_bundled:
+                s["enabled"] = False
+        # 默认可用性
+        s["inDefault"] = default_skills is None or sid in default_skills
+        # agent 分配
+        s["agentAssignments"] = {}
+        for aid, skills in agent_skills.items():
+            s["agentAssignments"][aid] = sid in skills
+        result.append(s)
+    
+    return {
+        "skills": result,
+        "defaultSkills": default_skills or [],
+        "defaultSkillsUnset": default_skills is None,
+        "agentSkillsOverrides": agent_skills,
+    }
+
+
+def _parse_skill_meta(path):
+    """从 SKILL.md 提取 name 和 description"""
+    try:
+        with open(path, 'r') as f:
+            content = f.read(2000)
+        if content.startswith('---'):
+            end = content.find('---', 3)
+            if end > 0:
+                fm = content[3:end].strip()
+                name = ""
+                desc = ""
+                in_desc = False
+                desc_lines = []
+                for line in fm.split('\n'):
+                    if in_desc:
+                        if line and not line[0].isalpha() and line[0] != ' ':
+                            in_desc = False
+                        else:
+                            desc_lines.append(line.strip())
+                            continue
+                    if line.startswith('name:'):
+                        name = line.split(':',1)[1].strip().strip('"').strip("'")
+                    elif line.startswith('description:'):
+                        desc = line.split(':',1)[1].strip().strip('"').strip("'")
+                        if desc.startswith('|'):
+                            in_desc = True
+                            continue
+                        if not desc:
+                            in_desc = True
+                if desc_lines and not desc:
+                    desc = ' '.join(desc_lines).strip()
+                return name, desc
+    except:
+        pass
+    return "", ""
+
+
+def set_skill_enabled(skill_id, enabled):
+    """启用/禁用 skill"""
+    config = get_openclaw_config()
+    entries = config.setdefault("skills", {}).setdefault("entries", {})
+    if skill_id not in entries:
+        entries[skill_id] = {}
+    entries[skill_id]["enabled"] = enabled
+    save_openclaw_config(config)
+    return True
+
+
+def set_default_skills(skill_ids):
+    """设置默认 skills allowlist"""
+    config = get_openclaw_config()
+    defaults = config.setdefault("agents", {}).setdefault("defaults", {})
+    if skill_ids is None or len(skill_ids) == 0:
+        # 移除限制，全部可用
+        if "skills" in defaults:
+            del defaults["skills"]
+    else:
+        defaults["skills"] = skill_ids
+    save_openclaw_config(config)
+    return True
+
+
+def set_agent_skills(agent_id, skill_ids):
+    """设置 agent 的 skills 覆盖"""
+    if agent_id == "main":
+        return set_default_skills(skill_ids)
+    config = get_openclaw_config()
+    agents_list = config.get("agents", {}).get("list", [])
+    found = False
+    for a in agents_list:
+        if a.get("id", a.get("name", "")) == agent_id:
+            if skill_ids is None or len(skill_ids) == 0:
+                a.pop("skills", None)
+            else:
+                a["skills"] = skill_ids
+            found = True
+            break
+    if not found:
+        raise ValueError(f"Agent '{agent_id}' 不存在")
+    save_openclaw_config(config)
+    return True
+
+
 def get_models():
     """获取完整模型配置（用于配置概览展示）"""
     config = get_openclaw_config()

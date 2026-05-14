@@ -370,6 +370,51 @@ def api_remove_provider(provider_id):
         return jsonify({"error": str(e)}), 500
 
 
+# ---- Skill Management API ----
+
+@app.route("/api/skills", methods=["GET"])
+def api_get_all_skills():
+    return jsonify(config_manager.get_all_skills())
+
+
+@app.route("/api/skills/<skill_id>/enabled", methods=["PUT"])
+def api_set_skill_enabled(skill_id):
+    data = request.json
+    enabled = data.get("enabled", True)
+    try:
+        config_manager.backup_current()
+        config_manager.set_skill_enabled(skill_id, enabled)
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/skills/default", methods=["PUT"])
+def api_set_default_skills():
+    data = request.json
+    skill_ids = data.get("skills")
+    try:
+        config_manager.backup_current()
+        config_manager.set_default_skills(skill_ids)
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/agents/<agent_id>/skills", methods=["PUT"])
+def api_set_agent_skills(agent_id):
+    data = request.json
+    skill_ids = data.get("skills")
+    try:
+        config_manager.backup_current()
+        config_manager.set_agent_skills(agent_id, skill_ids)
+        return jsonify({"success": True})
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 # ---- Service Control ----
 
 @app.route("/api/service/restart", methods=["POST"])
