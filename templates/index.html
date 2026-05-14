@@ -1410,7 +1410,7 @@
                 <label class="skill-assign-item">
                     <input type="checkbox" value="${escapeHtml(s.id)}" ${currentSet.has(s.id) ? 'checked' : ''}>
                     <span>${escapeHtml(s.name || s.id)}</span>
-                    <span class="skill-source source-${s.source}" style="font-size:0.6rem">${{bundled:'内置',extension:'插件',user:'用户'}[s.source]}</span>
+                    <span class="skill-source source-${s.source}" style="font-size:0.6rem">${s.source === 'bundled' ? '内置' : s.source === 'extension' ? '插件' : '用户'}</span>
                 </label>
             `).join('');
 
