@@ -492,6 +492,158 @@ def save_core_file(agent_id, filename, content):
     return True
 
 
+OPENCLAW_EXTENSIONS_DIR = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "..", "..", "..", "..",
+    ".npm-global", "lib", "node_modules", "openclaw", "dist", "extensions"
+)
+
+
+def _resolve_extensions_dir():
+    """解析 OpenClaw 扩展目录路径"""
+    # 尝试从 which openclaw 推导
+    try:
+        result = subprocess.run(["which", "openclaw"], capture_output=True, text=True)
+        if result.returncode == 0:
+            openclaw_bin = result.stdout.strip()
+            # /home/luo/.npm-global/bin/openclaw -> /home/luo/.npm-global/lib/node_modules/openclaw/dist/extensions
+            ext_dir = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.dirname(openclaw_bin))),
+                "lib", "node_modules", "openclaw", "dist", "extensions"
+            )
+            if os.path.isdir(ext_dir):
+                return ext_dir
+    except:
+        pass
+    # fallback
+    if os.path.isdir(OPENCLAW_EXTENSIONS_DIR):
+        return OPENCLAW_EXTENSIONS_DIR
+    return None
+
+
+def get_available_providers():
+    """获取 OpenClaw 原生所有可用的 LLM provider"""
+    ext_dir = _resolve_extensions_dir()
+    if not ext_dir:
+        return []
+
+    # 已知 LLM provider ID 列表
+    llm_ids = {
+        "openai", "anthropic", "google", "deepseek", "zai", "minimax", "mistral",
+        "groq", "together", "fireworks", "openrouter", "ollama", "lmstudio",
+        "qwen", "moonshot", "nvidia", "cerebras", "deepinfra", "chutes",
+        "xai", "volcengine", "byteplus", "stepfun", "arcee", "venice",
+        "vllm", "sglang", "litellm", "huggingface", "github-copilot",
+        "microsoft-foundry", "copilot-proxy", "kimi-coding", "tencent",
+        "xiaomi", "qianfan", "anthropic-vertex", "amazon-bedrock", "gradium",
+        "vydra", "alibaba",
+    }
+
+    # 读取当前已配置的 provider
+    config = get_openclaw_config()
+    configured = set(config.get("models", {}).get("providers", {}).keys())
+
+    results = []
+    for d in sorted(os.listdir(ext_dir)):
+        pfile = os.path.join(ext_dir, d, "openclaw.plugin.json")
+        if not os.path.isfile(pfile):
+            continue
+        try:
+            data = json.load(open(pfile))
+            providers = data.get("providers", [])
+            if not isinstance(providers, list) or not providers:
+                continue
+            if not isinstance(providers[0], str):
+                continue
+            # 只显示 LLM provider
+            if not any(pid in llm_ids for pid in providers):
+                continue
+
+            # 读取 host 信息
+            endpoints = data.get("providerEndpoints", [])
+            default_host = ""
+            for ep in endpoints:
+                hosts = ep.get("hosts", [])
+                if hosts:
+                    default_host = hosts[0]
+                    break
+
+            is_configured = any(pid in configured for pid in providers)
+
+            results.append({
+                "id": d,
+                "providerIds": providers,
+                "defaultHost": default_host,
+                "isConfigured": is_configured,
+            })
+        except:
+            pass
+
+    return results
+
+
+def get_provider_schema():
+    """获取 provider 配置的 schema 信息（关键字段）"""
+    return {
+        "baseUrl": {"type": "string", "required": True, "desc": "Provider API 地址"},
+        "apiKey": {"type": "string", "required": False, "desc": "API Key（可选，部分 provider 通过环境变量认证）"},
+        "api": {"type": "select", "required": True, "desc": "API 类型", "options": [
+            "openai-completions", "anthropic-messages", "google-gemini",
+        ]},
+    }
+
+
+def add_provider(provider_id, base_url, api_key="", api="openai-completions", models=None):
+    """添加 provider 配置"""
+    config = get_openclaw_config()
+    if "models" not in config:
+        config["models"] = {}
+    if "providers" not in config["models"]:
+        config["models"]["providers"] = {}
+
+    entry = {
+        "baseUrl": base_url,
+        "api": api,
+    }
+    if api_key:
+        entry["apiKey"] = api_key
+    if models:
+        entry["models"] = models
+
+    config["models"]["providers"][provider_id] = entry
+    save_openclaw_config(config)
+    return True
+
+
+def update_provider(provider_id, **kwargs):
+    """更新 provider 配置"""
+    config = get_openclaw_config()
+    providers = config.get("models", {}).get("providers", {})
+    if provider_id not in providers:
+        raise ValueError(f"Provider '{provider_id}' 未配置")
+    for key, value in kwargs.items():
+        if value is not None:
+            providers[provider_id][key] = value
+    save_openclaw_config(config)
+    return True
+
+
+def remove_provider(provider_id):
+    """删除 provider 配置"""
+    config = get_openclaw_config()
+    providers = config.get("models", {}).get("providers", {})
+    if provider_id not in providers:
+        raise ValueError(f"Provider '{provider_id}' 未配置")
+    # 检查是否有关联模型在使用
+    defaults = config.get("agents", {}).get("defaults", {})
+    default_model = defaults.get("model", {}).get("primary", "")
+    if default_model.startswith(f"{provider_id}/"):
+        raise ValueError(f"默认模型 '{default_model}' 正在使用此 provider，请先切换")
+    del providers[provider_id]
+    save_openclaw_config(config)
+    return True
+
+
 def get_models():
     """获取完整模型配置（用于配置概览展示）"""
     config = get_openclaw_config()

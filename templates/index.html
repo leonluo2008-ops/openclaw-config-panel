@@ -261,6 +261,43 @@
         </div>
     </div>
 
+    <!-- Modal: Configure Provider -->
+    <div id="provider-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="provider-modal-title">配置 Provider</h3>
+                <button onclick="closeProviderModal()" class="close">&times;</button>
+            </div>
+            <form id="provider-form">
+                <input type="hidden" id="provider-id">
+                <div class="form-group">
+                    <label>Provider ID</label>
+                    <input type="text" id="provider-display-id" disabled>
+                </div>
+                <div class="form-group">
+                    <label>Base URL <span class="file-required">*</span></label>
+                    <input type="text" id="provider-baseUrl" placeholder="例如: https://api.openai.com" required>
+                </div>
+                <div class="form-group">
+                    <label>API 类型</label>
+                    <select id="provider-api">
+                        <option value="openai-completions">openai-completions (OpenAI 兼容)</option>
+                        <option value="anthropic-messages">anthropic-messages (Anthropic)</option>
+                        <option value="google-gemini">google-gemini (Google)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>API Key（可选，部分 provider 通过环境变量认证）</label>
+                    <input type="password" id="provider-apiKey" placeholder="sk-...">
+                </div>
+                <div class="form-actions">
+                    <button type="button" onclick="closeProviderModal()" class="btn btn-secondary">取消</button>
+                    <button type="submit" class="btn btn-primary">保存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <!-- Modal: Add Binding -->
     <div id="binding-modal" class="modal">
         <div class="modal-content">
@@ -864,31 +901,82 @@
                 }).join('') +
                 '</tbody></table>';
 
-            // 提供商信息
+        // 提供商信息
             const provEl = document.getElementById('providers-container');
-            provEl.innerHTML = modelConfig.providers.map(p => `
-                <details class="provider-details">
-                    <summary><strong>${escapeHtml(p.id)}</strong> — ${escapeHtml(p.api)} — ${p.models.length} 个模型</summary>
-                    <div class="info-box" style="margin-top:0.5rem">
-                        <div class="info-row"><span class="label">Base URL:</span> <code>${escapeHtml(p.baseUrl)}</code></div>
-                        <div class="info-row"><span class="label">API:</span> <code>${escapeHtml(p.api)}</code></div>
-                        <table class="table" style="margin-top:0.5rem">
-                            <thead><tr><th>模型 ID</th><th>名称</th><th>上下文</th><th>推理</th><th>输入</th></tr></thead>
-                            <tbody>
-                                ${p.models.map(m => `
-                                    <tr>
-                                        <td><code>${escapeHtml(m.fullId)}</code></td>
-                                        <td>${escapeHtml(m.name)}</td>
-                                        <td>${m.contextWindow ? (m.contextWindow/1000).toFixed(0)+'K' : '-'}</td>
-                                        <td>${m.reasoning ? '✅' : '❌'}</td>
-                                        <td>${m.input.join(', ')}</td>
-                                    </tr>
-                                `).join('')}
-                            </tbody>
-                        </table>
-                    </div>
-                </details>
-            `).join('');
+            // 组合已配置和未配置的提供商
+            let allProviders = [];
+            // 已配置的
+            modelConfig.providers.forEach(p => {
+                allProviders.push({...p, configured: true});
+            });
+            // 加载可用 provider 列表
+            loadAvailableProviders(allProviders, provEl);
+        }
+
+        async function loadAvailableProviders(configuredProviders, container) {
+            try {
+                const res = await fetch('/api/providers/available');
+                const available = await res.json();
+                // 标记已配置的
+                const configuredIds = new Set(configuredProviders.map(p => p.id));
+                available.forEach(p => {
+                    if (!configuredIds.has(p.id)) {
+                        configuredProviders.push({
+                            id: p.id,
+                            baseUrl: '',
+                            api: '',
+                            models: [],
+                            configured: false,
+                            defaultHost: p.defaultHost,
+                            providerIds: p.providerIds,
+                        });
+                    }
+                });
+            } catch (e) {
+                console.error('Failed to load available providers:', e);
+            }
+
+            // 分组渲染
+            const configured = configuredProviders.filter(p => p.configured);
+            const unconfigured = configuredProviders.filter(p => !p.configured);
+
+            let html = '';
+            if (configured.length > 0) {
+                html += '<h4 class="section-subtitle" style="margin:0.75rem 0 0.5rem;color:var(--success)">✅ 已配置</h4>';
+                html += configured.map(p => `
+                    <details class="provider-details">
+                        <summary><strong>${escapeHtml(p.id)}</strong> — ${escapeHtml(p.api)} — ${p.models.length} 个模型
+                            <button onclick="event.stopPropagation();showProviderModal('${escapeJs(p.id)}','edit')" class="btn btn-sm" style="margin-left:0.5rem">编辑</button>
+                            <button onclick="event.stopPropagation();removeProvider('${escapeJs(p.id)}')" class="btn btn-sm btn-danger" style="margin-left:0.25rem">删除</button>
+                        </summary>
+                        <div class="info-box" style="margin-top:0.5rem">
+                            <div class="info-row"><span class="label">Base URL:</span> <code>${escapeHtml(p.baseUrl)}</code></div>
+                            <div class="info-row"><span class="label">API:</span> <code>${escapeHtml(p.api)}</code></div>
+                            ${p.models.length > 0 ? `<table class="table" style="margin-top:0.5rem">
+                                <thead><tr><th>模型 ID</th><th>名称</th><th>上下文</th><th>推理</th></tr></thead>
+                                <tbody>${p.models.map(m => `
+                                    <tr><td><code>${escapeHtml(m.fullId)}</code></td><td>${escapeHtml(m.name)}</td><td>${m.contextWindow ? (m.contextWindow/1000).toFixed(0)+'K' : '-'}</td><td>${m.reasoning ? '✅' : '❌'}</td></tr>
+                                `).join('')}</tbody>
+                            </table>` : ''}
+                        </div>
+                    </details>
+                `).join('');
+            }
+
+            if (unconfigured.length > 0) {
+                html += '<h4 class="section-subtitle" style="margin:1rem 0 0.5rem;color:var(--text-dim)">📦 可配置（点击展开查看详情，点击配置按钮添加）</h4>';
+                html += '<div class="provider-grid">';
+                unconfigured.map(p => {
+                    html += `<div class="provider-card" onclick="showProviderModal('${escapeJs(p.id)}','add')">
+                        <div class="provider-card-name">${escapeHtml(p.id)}</div>
+                        <div class="provider-card-host">${p.defaultHost ? escapeHtml(p.defaultHost) : '自定义端点'}</div>
+                        <button class="btn btn-sm btn-primary" style="margin-top:0.5rem;width:100%" onclick="event.stopPropagation();showProviderModal('${escapeJs(p.id)}','add')">+ 配置</button>
+                    </div>`;
+                });
+                html += '</div>';
+            }
+
+            container.innerHTML = html;
         }
 
         async function setDefaultModel() {
@@ -1020,6 +1108,93 @@
                     showToast('请求失败: ' + e.message, 'error');
                 }
             });
+        }
+
+        // ---- Provider Modal ----
+        let availableProvidersCache = [];
+
+        async function showProviderModal(providerId, mode) {
+            document.getElementById('provider-id').value = providerId;
+            document.getElementById('provider-display-id').value = providerId;
+
+            if (mode === 'edit') {
+                document.getElementById('provider-modal-title').textContent = `编辑 Provider - ${providerId}`;
+                // 填充现有配置
+                const provider = modelConfig.providers.find(p => p.id === providerId);
+                if (provider) {
+                    document.getElementById('provider-baseUrl').value = provider.baseUrl || '';
+                    document.getElementById('provider-api').value = provider.api || 'openai-completions';
+                    document.getElementById('provider-apiKey').value = '';
+                }
+            } else {
+                document.getElementById('provider-modal-title').textContent = `配置 Provider - ${providerId}`;
+                document.getElementById('provider-form').reset();
+                // 预填默认 host
+                try {
+                    if (availableProvidersCache.length === 0) {
+                        const res = await fetch('/api/providers/available');
+                        availableProvidersCache = await res.json();
+                    }
+                    const ap = availableProvidersCache.find(p => p.id === providerId);
+                    if (ap && ap.defaultHost) {
+                        document.getElementById('provider-baseUrl').value = `https://${ap.defaultHost}`;
+                    }
+                } catch (e) {}
+                document.getElementById('provider-display-id').value = providerId;
+            }
+
+            document.getElementById('provider-modal').style.display = 'flex';
+        }
+
+        function closeProviderModal() {
+            document.getElementById('provider-modal').style.display = 'none';
+        }
+
+        // 初始化 provider form
+        document.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('provider-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const providerId = document.getElementById('provider-id').value;
+                const baseUrl = document.getElementById('provider-baseUrl').value.trim();
+                const api = document.getElementById('provider-api').value;
+                const apiKey = document.getElementById('provider-apiKey').value.trim();
+
+                if (!baseUrl) { showToast('Base URL 不能为空', 'error'); return; }
+
+                try {
+                    const res = await fetch(`/api/providers/${providerId}`, {
+                        method: 'PUT',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({baseUrl, api, apiKey: apiKey || undefined})
+                    });
+                    const data = await res.json();
+                    if (data.success) {
+                        showToast(`Provider ${providerId} 已保存`, 'success');
+                        closeProviderModal();
+                        loadModelConfig();
+                    } else {
+                        showToast(data.error || '操作失败', 'error');
+                    }
+                } catch (e) {
+                    showToast('请求失败: ' + e.message, 'error');
+                }
+            });
+        });
+
+        async function removeProvider(providerId) {
+            if (!confirm(`确定删除 Provider "${providerId}"？相关模型配置也会被移除。`)) return;
+            try {
+                const res = await fetch(`/api/providers/${providerId}`, { method: 'DELETE' });
+                const data = await res.json();
+                if (data.success) {
+                    showToast('Provider 已删除', 'success');
+                    loadModelConfig();
+                } else {
+                    showToast(data.error || '删除失败', 'error');
+                }
+            } catch (e) {
+                showToast('请求失败: ' + e.message, 'error');
+            }
         }
 
         // ---- Tabs ----

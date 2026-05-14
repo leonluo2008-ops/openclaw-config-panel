@@ -327,6 +327,49 @@ def api_set_agent_model(agent_id):
         return jsonify({"error": str(e)}), 500
 
 
+# ---- Provider Management API ----
+
+@app.route("/api/providers/available", methods=["GET"])
+def api_get_available_providers():
+    return jsonify(config_manager.get_available_providers())
+
+
+@app.route("/api/providers/schema", methods=["GET"])
+def api_get_provider_schema():
+    return jsonify(config_manager.get_provider_schema())
+
+
+@app.route("/api/providers/<provider_id>", methods=["PUT"])
+def api_add_provider(provider_id):
+    data = request.json
+    base_url = data.get("baseUrl", "").strip()
+    api_key = data.get("apiKey", "").strip()
+    api = data.get("api", "openai-completions").strip()
+    models = data.get("models")
+
+    if not base_url:
+        return jsonify({"error": "Base URL 不能为空"}), 400
+
+    try:
+        config_manager.backup_current()
+        config_manager.add_provider(provider_id, base_url, api_key, api, models)
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/providers/<provider_id>", methods=["DELETE"])
+def api_remove_provider(provider_id):
+    try:
+        config_manager.backup_current()
+        config_manager.remove_provider(provider_id)
+        return jsonify({"success": True})
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 # ---- Service Control ----
 
 @app.route("/api/service/restart", methods=["POST"])
