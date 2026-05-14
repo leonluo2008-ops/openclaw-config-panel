@@ -20,8 +20,9 @@
         <main>
             <!-- Tabs -->
             <div class="tabs">
-                <button class="tab active" data-tab="bots">Bot 账号管理</button>
-                <button class="tab" data-tab="bindings">Agent 绑定路由</button>
+                <button class="tab active" data-tab="bots">Bot 账号</button>
+                <button class="tab" data-tab="bindings">Agent 绑定</button>
+                <button class="tab" data-tab="models">模型配置</button>
                 <button class="tab" data-tab="info">配置概览</button>
             </div>
 
@@ -46,6 +47,94 @@
 
                 <div id="binding-list" class="binding-list">
                     <!-- Bindings rendered here by JS -->
+                </div>
+            </div>
+
+            <!-- Tab: Models -->
+            <div id="tab-models" class="tab-content">
+                <div class="models-layout">
+                    <!-- Left: Provider List -->
+                    <div class="models-sidebar">
+                        <div class="section-header">
+                            <h3>模型服务商</h3>
+                            <button onclick="showAddProviderModal()" class="btn btn-sm btn-primary">+ 添加</button>
+                        </div>
+                        <div id="provider-list" class="provider-list">
+                            <!-- Providers rendered here -->
+                        </div>
+                    </div>
+
+                    <!-- Right: Provider Detail / Default Model -->
+                    <div class="models-main">
+                        <!-- Provider Detail -->
+                        <div id="provider-detail" class="provider-detail" style="display:none;">
+                            <div class="section-header">
+                                <h3 id="provider-detail-title">Provider 详情</h3>
+                                <div class="detail-actions">
+                                    <button onclick="showEditProviderModal()" class="btn btn-sm">编辑</button>
+                                    <button onclick="deleteCurrentProvider()" class="btn btn-sm btn-danger">删除</button>
+                                </div>
+                            </div>
+                            <div class="detail-info">
+                                <div class="info-row">
+                                    <span class="label">Base URL:</span>
+                                    <code id="provider-baseUrl"></code>
+                                </div>
+                                <div class="info-row">
+                                    <span class="label">API Type:</span>
+                                    <span id="provider-api"></span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="label">API Key:</span>
+                                    <code id="provider-apiKey"></code>
+                                </div>
+                                <div class="info-row">
+                                    <span class="label">AuthHeader:</span>
+                                    <span id="provider-authHeader"></span>
+                                </div>
+                            </div>
+
+                            <!-- Models in this Provider -->
+                            <div class="models-section">
+                                <div class="section-header">
+                                    <h4>模型列表</h4>
+                                    <button onclick="showAddModelModal()" class="btn btn-sm btn-primary">+ 添加模型</button>
+                                </div>
+                                <div id="provider-models-list" class="model-list">
+                                    <!-- Models rendered here -->
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- No Provider Selected -->
+                        <div id="provider-empty" class="empty-state">
+                            <p>从左侧选择一个服务商查看详情</p>
+                        </div>
+
+                        <!-- Default Model Selection -->
+                        <div class="default-model-section">
+                            <div class="section-header">
+                                <h3>默认模型选择</h3>
+                            </div>
+                            <div class="default-model-form">
+                                <div class="form-group">
+                                    <label>主模型 (Primary)</label>
+                                    <select id="default-primary">
+                                        <option value="">选择主模型...</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label>备用模型 (Fallbacks)</label>
+                                    <div id="fallback-checkboxes" class="checkbox-group">
+                                        <!-- Fallback checkboxes rendered here -->
+                                    </div>
+                                </div>
+                                <div class="form-actions">
+                                    <button onclick="saveDefaultModel()" class="btn btn-primary">保存默认模型</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -153,6 +242,125 @@
         </div>
     </div>
 
+    <!-- Modal: Add/Edit Provider -->
+    <div id="provider-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="provider-modal-title">添加服务商</h3>
+                <button onclick="closeProviderModal()" class="close">&times;</button>
+            </div>
+            <form id="provider-form">
+                <input type="hidden" id="provider-name-original">
+                <div class="form-group">
+                    <label>服务商名称</label>
+                    <input type="text" id="provider-name" placeholder="例如: minimax, zai, openai" required>
+                </div>
+                <div class="form-group">
+                    <label>Base URL</label>
+                    <input type="text" id="provider-baseUrl" placeholder="https://api.minimax.io/anthropic" required>
+                </div>
+                <div class="form-group">
+                    <label>API Key</label>
+                    <input type="password" id="provider-apiKey" placeholder="留空则不修改">
+                </div>
+                <div class="form-group">
+                    <label>API 类型</label>
+                    <select id="provider-api">
+                        <option value="anthropic-messages">anthropic-messages</option>
+                        <option value="openai-completions">openai-completions</option>
+                        <option value="openai-responses">openai-responses</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="provider-authHeader"> 使用 Auth Header
+                    </label>
+                </div>
+                <div class="form-actions">
+                    <button type="button" onclick="closeProviderModal()" class="btn btn-secondary">取消</button>
+                    <button type="submit" class="btn btn-primary">保存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal: Add/Edit Model -->
+    <div id="model-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="model-modal-title">添加模型</h3>
+                <button onclick="closeModelModal()" class="close">&times;</button>
+            </div>
+            <form id="model-form">
+                <input type="hidden" id="model-provider-name">
+                <input type="hidden" id="model-id-original">
+                <div class="form-group">
+                    <label>模型 ID</label>
+                    <input type="text" id="model-id" placeholder="例如: MiniMax-M2.7" required>
+                </div>
+                <div class="form-group">
+                    <label>显示名称</label>
+                    <input type="text" id="model-name" placeholder="例如: MiniMax M2.7">
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>支持推理</label>
+                        <select id="model-reasoning">
+                            <option value="false">否</option>
+                            <option value="true">是</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>输入类型</label>
+                        <select id="model-input">
+                            <option value='["text"]'>仅文本</option>
+                            <option value='["text","image"]'>文本+图片</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>上下文窗口</label>
+                        <input type="number" id="model-contextWindow" value="200000">
+                    </div>
+                    <div class="form-group">
+                        <label>最大输出</label>
+                        <input type="number" id="model-maxTokens" value="8192">
+                    </div>
+                </div>
+                <details class="cost-details">
+                    <summary>成本配置（可选）</summary>
+                    <div class="cost-fields">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Input Cost</label>
+                                <input type="number" id="model-cost-input" value="0" step="0.001">
+                            </div>
+                            <div class="form-group">
+                                <label>Output Cost</label>
+                                <input type="number" id="model-cost-output" value="0" step="0.001">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Cache Read</label>
+                                <input type="number" id="model-cost-cacheRead" value="0" step="0.001">
+                            </div>
+                            <div class="form-group">
+                                <label>Cache Write</label>
+                                <input type="number" id="model-cost-cacheWrite" value="0" step="0.001">
+                            </div>
+                        </div>
+                    </div>
+                </details>
+                <div class="form-actions">
+                    <button type="button" onclick="closeModelModal()" class="btn btn-secondary">取消</button>
+                    <button type="submit" class="btn btn-primary">保存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <!-- Toast notification -->
     <div id="toast" class="toast"></div>
 
@@ -162,17 +370,27 @@
         const bindings = {{ bindings | tojson }};
         const agents = {{ agents | tojson }};
         const models = {{ models | tojson }};
+        const modelProviders = {{ model_providers | tojson }};
+        const agentModels = {{ agent_models | tojson }};
+        const defaultModel = {{ default_model | tojson }};
         const serviceOk = {{ 'true' if service_ok else 'false' }};
+
+        // Current state
+        let currentProvider = null;
 
         // ---- Init ----
         document.addEventListener('DOMContentLoaded', () => {
             renderServiceStatus();
             renderBots();
             renderBindings();
+            renderProviders();
+            renderDefaultModel();
             renderInfo();
             initTabs();
             initBotForm();
             initBindingForm();
+            initProviderForm();
+            initModelForm();
         });
 
         // ---- Service Status ----
@@ -475,17 +693,402 @@
             }
         }
 
+        // =====================================================================
+        // Models Tab
+        // =====================================================================
+
+        function renderProviders() {
+            const container = document.getElementById('provider-list');
+            const providerNames = Object.keys(modelProviders);
+            
+            if (providerNames.length === 0) {
+                container.innerHTML = '<p class="empty-state">暂无服务商，请添加</p>';
+                return;
+            }
+
+            container.innerHTML = providerNames.map(name => {
+                const p = modelProviders[name];
+                const modelCount = p.models ? p.models.length : 0;
+                const isSelected = currentProvider === name;
+                return `
+                    <div class="provider-item ${isSelected ? 'selected' : ''}" onclick="selectProvider('${escapeJs(name)}')">
+                        <div class="provider-name">${escapeHtml(name)}</div>
+                        <div class="provider-meta">${modelCount} 个模型</div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function selectProvider(name) {
+            currentProvider = name;
+            renderProviders();
+            renderProviderDetail(name);
+        }
+
+        function renderProviderDetail(name) {
+            const detail = document.getElementById('provider-detail');
+            const empty = document.getElementById('provider-empty');
+            
+            if (!name || !modelProviders[name]) {
+                detail.style.display = 'none';
+                empty.style.display = 'block';
+                return;
+            }
+
+            detail.style.display = 'block';
+            empty.style.display = 'none';
+
+            const p = modelProviders[name];
+            document.getElementById('provider-detail-title').textContent = name;
+            document.getElementById('provider-baseUrl').textContent = p.baseUrl || '';
+            document.getElementById('provider-api').textContent = p.api || 'anthropic-messages';
+            document.getElementById('provider-apiKey').textContent = p.apiKey_masked || '(未设置)';
+            document.getElementById('provider-authHeader').textContent = p.authHeader ? '是' : '否';
+
+            // Render models
+            const modelsList = document.getElementById('provider-models-list');
+            const models_data = p.models || [];
+            
+            if (models_data.length === 0) {
+                modelsList.innerHTML = '<p class="empty-state">暂无模型，点击"添加模型"添加</p>';
+            } else {
+                modelsList.innerHTML = `
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>模型 ID</th>
+                                <th>名称</th>
+                                <th>推理</th>
+                                <th>上下文</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${models_data.map(m => `
+                                <tr>
+                                    <td><code>${escapeHtml(m.id)}</code></td>
+                                    <td>${escapeHtml(m.name || m.id)}</td>
+                                    <td>${m.reasoning ? '✓' : '✗'}</td>
+                                    <td>${(m.contextWindow || 200000).toLocaleString()}</td>
+                                    <td>
+                                        <button onclick="editModel('${escapeJs(name)}', '${escapeJs(m.id)}')" class="btn btn-sm">编辑</button>
+                                        <button onclick="deleteModel('${escapeJs(name)}', '${escapeJs(m.id)}')" class="btn btn-sm btn-danger">删除</button>
+                                    </td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                `;
+            }
+        }
+
+        // ---- Provider Modal ----
+        function showAddProviderModal() {
+            document.getElementById('provider-modal-title').textContent = '添加服务商';
+            document.getElementById('provider-form').reset();
+            document.getElementById('provider-name-original').value = '';
+            document.getElementById('provider-name').required = true;
+            document.getElementById('provider-apiKey').required = false;
+            document.getElementById('provider-modal').style.display = 'flex';
+        }
+
+        function showEditProviderModal() {
+            if (!currentProvider) return;
+            const p = modelProviders[currentProvider];
+            
+            document.getElementById('provider-modal-title').textContent = '编辑服务商';
+            document.getElementById('provider-name-original').value = currentProvider;
+            document.getElementById('provider-name').value = currentProvider;
+            document.getElementById('provider-name').required = true;
+            document.getElementById('provider-baseUrl').value = p.baseUrl || '';
+            document.getElementById('provider-apiKey').value = '';
+            document.getElementById('provider-apiKey').required = false;
+            document.getElementById('provider-api').value = p.api || 'anthropic-messages';
+            document.getElementById('provider-authHeader').checked = p.authHeader || false;
+            document.getElementById('provider-modal').style.display = 'flex';
+        }
+
+        function closeProviderModal() {
+            document.getElementById('provider-modal').style.display = 'none';
+        }
+
+        function initProviderForm() {
+            document.getElementById('provider-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                
+                const originalName = document.getElementById('provider-name-original').value;
+                const name = document.getElementById('provider-name').value.trim();
+                const baseUrl = document.getElementById('provider-baseUrl').value.trim();
+                const apiKey = document.getElementById('provider-apiKey').value.trim();
+                const api = document.getElementById('provider-api').value;
+                const authHeader = document.getElementById('provider-authHeader').checked;
+
+                if (!name || !baseUrl) {
+                    showToast('名称和 Base URL 不能为空', 'error');
+                    return;
+                }
+
+                const isEdit = !!originalName;
+                
+                try {
+                    let res, data;
+                    const payload = { baseUrl, api, authHeader };
+                    if (apiKey) payload.apiKey = apiKey;
+
+                    if (isEdit) {
+                        res = await fetch(`/api/models/providers/${originalName}`, {
+                            method: 'PUT',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify(payload)
+                        });
+                    } else {
+                        payload.name = name;
+                        res = await fetch('/api/models/providers', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify(payload)
+                        });
+                    }
+
+                    data = await res.json();
+                    if (data.success) {
+                        showToast(isEdit ? '服务商已更新' : '服务商已添加', 'success');
+                        closeProviderModal();
+                        setTimeout(() => location.reload(), 800);
+                    } else {
+                        showToast(data.error || '操作失败', 'error');
+                    }
+                } catch (e) {
+                    showToast('请求失败: ' + e.message, 'error');
+                }
+            });
+        }
+
+        async function deleteCurrentProvider() {
+            if (!currentProvider) return;
+            if (!confirm(`确定删除服务商 "${currentProvider}"？此操作不可恢复。`)) return;
+            
+            try {
+                const res = await fetch(`/api/models/providers/${currentProvider}`, { method: 'DELETE' });
+                const data = await res.json();
+                if (data.success) {
+                    showToast('服务商已删除', 'success');
+                    currentProvider = null;
+                    setTimeout(() => location.reload(), 500);
+                } else {
+                    showToast(data.error || '删除失败', 'error');
+                }
+            } catch (e) {
+                showToast('请求失败: ' + e.message, 'error');
+            }
+        }
+
+        // ---- Model Modal ----
+        function showAddModelModal() {
+            if (!currentProvider) {
+                showToast('请先选择一个服务商', 'error');
+                return;
+            }
+            
+            document.getElementById('model-modal-title').textContent = '添加模型';
+            document.getElementById('model-form').reset();
+            document.getElementById('model-provider-name').value = currentProvider;
+            document.getElementById('model-id-original').value = '';
+            document.getElementById('model-id').required = true;
+            document.getElementById('model-modal').style.display = 'flex';
+        }
+
+        function editModel(providerName, modelId) {
+            const p = modelProviders[providerName];
+            if (!p || !p.models) return;
+            const m = p.models.find(m => m.id === modelId);
+            if (!m) return;
+
+            document.getElementById('model-modal-title').textContent = '编辑模型';
+            document.getElementById('model-provider-name').value = providerName;
+            document.getElementById('model-id-original').value = modelId;
+            document.getElementById('model-id').value = m.id;
+            document.getElementById('model-id').required = false;
+            document.getElementById('model-name').value = m.name || '';
+            document.getElementById('model-reasoning').value = String(m.reasoning || false);
+            document.getElementById('model-input').value = JSON.stringify(m.input || ['text']);
+            document.getElementById('model-contextWindow').value = m.contextWindow || 200000;
+            document.getElementById('model-maxTokens').value = m.maxTokens || 8192;
+            
+            if (m.cost) {
+                document.getElementById('model-cost-input').value = m.cost.input || 0;
+                document.getElementById('model-cost-output').value = m.cost.output || 0;
+                document.getElementById('model-cost-cacheRead').value = m.cost.cacheRead || 0;
+                document.getElementById('model-cost-cacheWrite').value = m.cost.cacheWrite || 0;
+            }
+            
+            document.getElementById('model-modal').style.display = 'flex';
+        }
+
+        function closeModelModal() {
+            document.getElementById('model-modal').style.display = 'none';
+        }
+
+        function initModelForm() {
+            document.getElementById('model-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                
+                const providerName = document.getElementById('model-provider-name').value;
+                const originalId = document.getElementById('model-id-original').value;
+                const id = document.getElementById('model-id').value.trim();
+                const name = document.getElementById('model-name').value.trim() || id;
+                const reasoning = document.getElementById('model-reasoning').value === 'true';
+                const input = JSON.parse(document.getElementById('model-input').value);
+                const contextWindow = parseInt(document.getElementById('model-contextWindow').value) || 200000;
+                const maxTokens = parseInt(document.getElementById('model-maxTokens').value) || 8192;
+                
+                const cost = {
+                    input: parseFloat(document.getElementById('model-cost-input').value) || 0,
+                    output: parseFloat(document.getElementById('model-cost-output').value) || 0,
+                    cacheRead: parseFloat(document.getElementById('model-cost-cacheRead').value) || 0,
+                    cacheWrite: parseFloat(document.getElementById('model-cost-cacheWrite').value) || 0
+                };
+
+                if (!id) {
+                    showToast('模型 ID 不能为空', 'error');
+                    return;
+                }
+
+                const isEdit = !!originalId;
+                
+                try {
+                    let res, data;
+                    const payload = { id: originalId || id, name, reasoning, input, contextWindow, maxTokens, cost };
+
+                    if (isEdit) {
+                        res = await fetch(`/api/models/providers/${providerName}/models/${originalId}`, {
+                            method: 'PUT',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify(payload)
+                        });
+                    } else {
+                        res = await fetch(`/api/models/providers/${providerName}/models`, {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify(payload)
+                        });
+                    }
+
+                    data = await res.json();
+                    if (data.success) {
+                        showToast(isEdit ? '模型已更新' : '模型已添加', 'success');
+                        closeModelModal();
+                        setTimeout(() => location.reload(), 800);
+                    } else {
+                        showToast(data.error || '操作失败', 'error');
+                    }
+                } catch (e) {
+                    showToast('请求失败: ' + e.message, 'error');
+                }
+            });
+        }
+
+        async function deleteModel(providerName, modelId) {
+            if (!confirm(`确定删除模型 "${modelId}"？`)) return;
+            
+            try {
+                const res = await fetch(`/api/models/providers/${providerName}/models/${modelId}`, { method: 'DELETE' });
+                const data = await res.json();
+                if (data.success) {
+                    showToast('模型已删除', 'success');
+                    setTimeout(() => location.reload(), 500);
+                } else {
+                    showToast(data.error || '删除失败', 'error');
+                }
+            } catch (e) {
+                showToast('请求失败: ' + e.message, 'error');
+            }
+        }
+
+        // ---- Default Model ----
+        function renderDefaultModel() {
+            // Build list of all available models from all providers
+            const allModels = [];
+            for (const [providerName, p] of Object.entries(modelProviders)) {
+                if (p.models) {
+                    for (const m of p.models) {
+                        allModels.push(`${providerName}/${m.id}`);
+                    }
+                }
+            }
+
+            // Primary select
+            const primarySelect = document.getElementById('default-primary');
+            primarySelect.innerHTML = '<option value="">选择主模型...</option>' +
+                allModels.map(ref => {
+                    const selected = defaultModel.primary === ref ? 'selected' : '';
+                    return `<option value="${escapeHtml(ref)}" ${selected}>${escapeHtml(ref)}</option>`;
+                }).join('');
+
+            // Fallback checkboxes
+            const fbContainer = document.getElementById('fallback-checkboxes');
+            if (allModels.length === 0) {
+                fbContainer.innerHTML = '<p class="empty-state">无可用模型</p>';
+            } else {
+                const currentFallbacks = defaultModel.fallbacks || [];
+                fbContainer.innerHTML = allModels.map(ref => {
+                    const checked = currentFallbacks.includes(ref) ? 'checked' : '';
+                    return `
+                        <label class="checkbox-item">
+                            <input type="checkbox" value="${escapeHtml(ref)}" ${checked}>
+                            ${escapeHtml(ref)}
+                        </label>
+                    `;
+                }).join('');
+            }
+        }
+
+        async function saveDefaultModel() {
+            const primary = document.getElementById('default-primary').value;
+            
+            if (!primary) {
+                showToast('请选择主模型', 'error');
+                return;
+            }
+
+            const fbCheckboxes = document.querySelectorAll('#fallback-checkboxes input[type="checkbox"]:checked');
+            const fallbacks = Array.from(fbCheckboxes).map(cb => cb.value);
+
+            try {
+                const res = await fetch('/api/models/default', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ primary, fallbacks })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast('默认模型已保存', 'success');
+                    setTimeout(() => location.reload(), 800);
+                } else {
+                    showToast(data.error || '保存失败', 'error');
+                }
+            } catch (e) {
+                showToast('请求失败: ' + e.message, 'error');
+            }
+        }
+
         // ---- Info Tab ----
         function renderInfo() {
             // Models
             const modelEl = document.getElementById('model-info');
-            if (models && Object.keys(models).length > 0) {
-                const modelHtml = Object.entries(models).map(([name, conf]) => `
-                    <div class="model-item">
-                        <strong>${escapeHtml(name)}</strong>
-                        ${conf.provider ? ` → ${escapeHtml(conf.provider)}` : ''}
-                    </div>
-                `).join('');
+            if (modelProviders && Object.keys(modelProviders).length > 0) {
+                const modelHtml = Object.entries(modelProviders).map(([name, conf]) => {
+                    const modelList = conf.models ? conf.models.map(m => 
+                        `<li>${escapeHtml(m.id)} ${m.name ? '(' + escapeHtml(m.name) + ')' : ''}</li>`
+                    ).join('') : '';
+                    return `
+                        <div class="model-item">
+                            <strong>${escapeHtml(name)}</strong>
+                            ${conf.baseUrl ? ` → ${escapeHtml(conf.baseUrl)}` : ''}
+                            ${modelList ? `<ul>${modelList}</ul>` : ''}
+                        </div>
+                    `;
+                }).join('');
                 modelEl.innerHTML = modelHtml;
             } else {
                 modelEl.innerHTML = '<p class="empty-state">未找到模型配置</p>';

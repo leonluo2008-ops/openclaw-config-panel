@@ -209,8 +209,278 @@ def get_agents():
     return result
 
 
+# =============================================================================
+# Model Provider Management (models.providers)
+# =============================================================================
+
+def get_model_providers():
+    """获取所有模型 Provider 配置"""
+    config = get_openclaw_config()
+    providers = config.get("models", {}).get("providers", {})
+    return providers
+
+
+def get_model_provider(name):
+    """获取单个 Provider 配置"""
+    providers = get_model_providers()
+    return providers.get(name)
+
+
+def save_model_providers(providers):
+    """保存 providers 到 models.providers"""
+    config = get_openclaw_config()
+    if "models" not in config:
+        config["models"] = {}
+    config["models"]["providers"] = providers
+    save_openclaw_config(config)
+
+
+def add_model_provider(name, baseUrl, apiKey="", api="anthropic-messages",
+                       authHeader=False, models=None):
+    """
+    添加新的模型 Provider
+    
+    Args:
+        name: Provider 名称 (如 minimax, zai, openai)
+        baseUrl: API 基础地址
+        apiKey: API 密钥 (可选)
+        api: API 类型 - anthropic-messages / openai-completions / openai-responses
+        authHeader: 是否使用 Authorization header
+        models: 模型列表 (可选)
+    """
+    config = get_openclaw_config()
+    if "models" not in config:
+        config["models"] = {"mode": "merge", "providers": {}}
+    if "providers" not in config["models"]:
+        config["models"]["providers"] = {}
+    
+    provider_config = {
+        "baseUrl": baseUrl,
+        "api": api,
+    }
+    if apiKey:
+        provider_config["apiKey"] = apiKey
+    if authHeader:
+        provider_config["authHeader"] = True
+    if models:
+        provider_config["models"] = models
+    
+    config["models"]["providers"][name] = provider_config
+    save_openclaw_config(config)
+    return True
+
+
+def update_model_provider(name, **kwargs):
+    """更新 Provider 配置"""
+    config = get_openclaw_config()
+    providers = config.get("models", {}).get("providers", {})
+    if name not in providers:
+        return False
+    
+    for key, value in kwargs.items():
+        if value is not None:
+            providers[name][key] = value
+    
+    save_openclaw_config(config)
+    return True
+
+
+def delete_model_provider(name):
+    """删除 Provider 及其所有模型"""
+    config = get_openclaw_config()
+    providers = config.get("models", {}).get("providers", {})
+    if name not in providers:
+        return False
+    
+    del providers[name]
+    save_openclaw_config(config)
+    return True
+
+
+# =============================================================================
+# Model Management (within Provider)
+# =============================================================================
+
+def add_model_to_provider(provider_name, model_data):
+    """
+    向 Provider 添加模型
+    
+    Args:
+        provider_name: Provider 名称
+        model_data: 模型数据，包含:
+            - id: 模型 ID (必填)
+            - name: 模型显示名
+            - reasoning: 是否支持推理
+            - input: 输入类型 ["text"] 或 ["text", "image"]
+            - cost: 成本 {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}
+            - contextWindow: 上下文窗口大小
+            - maxTokens: 最大输出 token
+    """
+    config = get_openclaw_config()
+    providers = config.get("models", {}).get("providers", {})
+    if provider_name not in providers:
+        raise ValueError(f"Provider '{provider_name}' not found")
+    
+    if "models" not in providers[provider_name]:
+        providers[provider_name]["models"] = []
+    
+    # 检查 model id 是否已存在
+    for m in providers[provider_name]["models"]:
+        if m.get("id") == model_data.get("id"):
+            raise ValueError(f"Model '{model_data.get('id')}' already exists in provider '{provider_name}'")
+    
+    # 补全默认值
+    model = {
+        "id": model_data.get("id"),
+        "name": model_data.get("name", model_data.get("id")),
+        "reasoning": model_data.get("reasoning", False),
+        "input": model_data.get("input", ["text"]),
+        "cost": model_data.get("cost", {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}),
+        "contextWindow": model_data.get("contextWindow", 200000),
+        "maxTokens": model_data.get("maxTokens", 8192),
+    }
+    
+    providers[provider_name]["models"].append(model)
+    save_openclaw_config(config)
+    return True
+
+
+def update_model_in_provider(provider_name, model_id, **kwargs):
+    """更新 Provider 中的模型"""
+    config = get_openclaw_config()
+    providers = config.get("models", {}).get("providers", {})
+    if provider_name not in providers:
+        return False
+    
+    models = providers[provider_name].get("models", [])
+    for model in models:
+        if model.get("id") == model_id:
+            for key, value in kwargs.items():
+                if value is not None:
+                    model[key] = value
+            save_openclaw_config(config)
+            return True
+    
+    return False
+
+
+def delete_model_from_provider(provider_name, model_id):
+    """从 Provider 删除模型"""
+    config = get_openclaw_config()
+    providers = config.get("models", {}).get("providers", {})
+    if provider_name not in providers:
+        return False
+    
+    models = providers[provider_name].get("models", [])
+    original_len = len(models)
+    providers[provider_name]["models"] = [m for m in models if m.get("id") != model_id]
+    
+    if len(providers[provider_name]["models"]) < original_len:
+        save_openclaw_config(config)
+        return True
+    
+    return False
+
+
+# =============================================================================
+# Agent Model Config (agents.defaults.models - alias/allowlist)
+# =============================================================================
+
+def get_agent_models():
+    """获取 agents.defaults.models 配置（模型别名/白名单）"""
+    config = get_openclaw_config()
+    return config.get("agents", {}).get("defaults", {}).get("models", {})
+
+
+def set_agent_model(provider_model_ref, alias=None):
+    """
+    添加或更新 agents.defaults.models 条目
+    
+    Args:
+        provider_model_ref: 模型引用，如 "minimax/MiniMax-M2.7"
+        alias: 可选别名
+    """
+    config = get_openclaw_config()
+    if "agents" not in config:
+        config["agents"] = {}
+    if "defaults" not in config["agents"]:
+        config["agents"]["defaults"] = {}
+    if "models" not in config["agents"]["defaults"]:
+        config["agents"]["defaults"]["models"] = {}
+    
+    if alias:
+        config["agents"]["defaults"]["models"][provider_model_ref] = {"alias": alias}
+    else:
+        config["agents"]["defaults"]["models"][provider_model_ref] = {}
+    
+    save_openclaw_config(config)
+    return True
+
+
+def remove_agent_model(provider_model_ref):
+    """从 agents.defaults.models 移除模型"""
+    config = get_openclaw_config()
+    models = config.get("agents", {}).get("defaults", {}).get("models", {})
+    if provider_model_ref in models:
+        del models[provider_model_ref]
+        save_openclaw_config(config)
+        return True
+    return False
+
+
+# =============================================================================
+# Default Model Selection (agents.defaults.model)
+# =============================================================================
+
+def get_default_model():
+    """获取默认模型配置 (primary + fallbacks)"""
+    config = get_openclaw_config()
+    model_config = config.get("agents", {}).get("defaults", {}).get("model", {})
+    return {
+        "primary": model_config.get("primary", ""),
+        "fallbacks": model_config.get("fallbacks", [])
+    }
+
+
+def set_default_model(primary, fallbacks=None):
+    """
+    设置默认模型 (primary + fallbacks)
+    
+    Args:
+        primary: 主模型，如 "minimax/MiniMax-M2.7"
+        fallbacks: 备用模型列表
+    """
+    config = get_openclaw_config()
+    if "agents" not in config:
+        config["agents"] = {}
+    if "defaults" not in config["agents"]:
+        config["agents"]["defaults"] = {}
+    if "model" not in config["agents"]["defaults"]:
+        config["agents"]["defaults"]["model"] = {}
+    
+    config["agents"]["defaults"]["model"]["primary"] = primary
+    if fallbacks is not None:
+        config["agents"]["defaults"]["model"]["fallbacks"] = fallbacks
+    
+    save_openclaw_config(config)
+    return True
+
+
+def clear_default_model():
+    """清除默认模型配置"""
+    config = get_openclaw_config()
+    if "agents" in config and "defaults" in config["agents"] and "model" in config["agents"]["defaults"]:
+        del config["agents"]["defaults"]["model"]
+        save_openclaw_config(config)
+    return True
+
+
+# =============================================================================
+# Misc
+# =============================================================================
+
 def get_models():
-    """获取模型配置"""
+    """获取模型配置（兼容旧接口）"""
     config = get_openclaw_config()
     return config.get("models", {})
 
